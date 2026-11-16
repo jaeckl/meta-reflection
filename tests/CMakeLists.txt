@@ -20,3 +20,6 @@ reflect_add_test(static_fields)
 reflect_add_test(overloads)
 reflect_add_test(parameters)
 reflect_add_test(tables)
+
+# The snippets of docs/getting-started.md.
+reflect_add_test(guide)
