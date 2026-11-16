@@ -24,6 +24,17 @@ reflect_add_test(tables)
 reflect_add_test(walk)
 reflect_add_test(builder)
 reflect_add_test(namespaces)
+reflect_add_test(codegen)
+
+# A generator that has to refuse its input, with messages in the format of
+# compiler errors: file:line:column: error: text.
+add_executable(test_codegen_errors codegen_errors.cpp)
+target_link_libraries(test_codegen_errors PRIVATE reflect::reflect)
+target_compile_options(test_codegen_errors PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME codegen_errors
+    COMMAND test_codegen_errors ${CMAKE_CURRENT_BINARY_DIR}/never_written.hpp)
+set_tests_properties(codegen_errors PROPERTIES PASS_REGULAR_EXPRESSION
+    "codegen_bad_model.hpp:10:[0-9]+: error: reflect::generate_builder: the class needs a default constructor")
 
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)

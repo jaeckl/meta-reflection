@@ -24,6 +24,18 @@ namespace reflect {
 struct required_t {};
 inline constexpr required_t required{};
 
+/// Asks the code generator for a builder class, UserBuilder for a class
+/// User. Every setter is called `prefix` plus the name of its field:
+///
+///     struct [[=reflect::generate_builder{}]] User { ... };
+///     struct [[=reflect::generate_builder{"set_"}]] Order { ... };
+///
+/// Read by reflect::codegen::builder_processor; without a generator run the
+/// annotation does nothing.
+struct generate_builder {
+    static_string prefix = "with_";
+};
+
 namespace detail {
 
 // The field called `name` in `type` or, if it declares none, in one of its

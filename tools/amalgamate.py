@@ -18,6 +18,10 @@ SOURCE = ROOT / "include" / "reflect"
 ENTRY = SOURCE / "reflect.hpp"
 OUTPUT = ROOT / "single_include" / "reflect" / "reflect.hpp"
 
+# Headers for code generator programs. They write files and are used from a
+# build system, so they are not part of the single header.
+GENERATOR_ONLY = ("codegen.hpp", "codegen/")
+
 LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"\s*$')
 SYSTEM_INCLUDE = re.compile(r"^\s*#\s*include\s+<([^>]+)>\s*$")
 PRAGMA_ONCE = re.compile(r"^\s*#\s*pragma\s+once\s*$")
@@ -91,9 +95,10 @@ def build():
     expand(ENTRY, seen, system_headers, body)
 
     missing = sorted(
-        p.relative_to(SOURCE).as_posix()
+        name
         for p in SOURCE.rglob("*.hpp")
         if p.resolve() not in seen
+        and not (name := p.relative_to(SOURCE).as_posix()).startswith(GENERATOR_ONLY)
     )
     if missing:
         sys.exit("not reachable from reflect.hpp: " + ", ".join(missing))
