@@ -372,11 +372,12 @@ and the CMake functions `reflect_process` and `reflect_generate`. See
   (`std::meta::source_location_of`), not by namespace. That matches how a
   build describes its input, a list of headers, and it needs no rule about
   which namespaces belong to the project. The walk starts at the global
-  namespace and skips `std`; in a test with eight large standard headers
-  included it visited about 3000 declarations and added no measurable
-  compile time. The file names are compared as text, because compile-time
-  code cannot ask the file system, so a relative and an absolute spelling
-  match when one is the tail of the other.
+  namespace and skips `std`. For the generator of `examples/processors` it
+  adds about a quarter of a second to a compilation of about 1.3 seconds, of
+  which 0.9 seconds are the included headers; nine more standard headers did
+  not change the cost of the walk. The file names are compared as text,
+  because compile-time code cannot ask the file system, so a relative and an
+  absolute spelling match when one is the tail of the other.
 - C++ compilers have no interface for running a processor, as `javac` has.
   The generator is therefore a separate program that the build system
   compiles and runs, and `reflect_process` writes its `main`. A processor
