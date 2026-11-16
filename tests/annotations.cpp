@@ -41,6 +41,36 @@ static_assert(reflect::get_annotations<Tag, User>()[1].id == 2);
 static_assert(reflect::get_annotations<Skip, User>().empty());
 static_assert(reflect::get_annotations<Limit, User>()[0].value == 5);
 
+// With a fallback.
+static_assert(reflect::get_annotation_or<Limit, User>(Limit{9}).value == 5);
+static_assert(reflect::get_annotation_or<Limit, Plain>(Limit{9}).value == 9);
+
+struct Widths {
+    [[=Limit{3}]] int narrow;
+    int normal;
+};
+static_assert(reflect::get_annotation_or<Limit>(reflect::get_field_of<Widths, "narrow">(),
+                                               Limit{10})
+                  .value == 3);
+static_assert(reflect::get_annotation_or<Limit>(reflect::get_field_of<Widths, "normal">(),
+                                               Limit{10})
+                  .value == 10);
+
+// As a constraint.
+static_assert(reflect::annotated_with<User, Serializable>);
+static_assert(!reflect::annotated_with<Plain, Serializable>);
+static_assert(!reflect::annotated_with<int, Serializable>);
+
+template <reflect::annotated_with<Serializable> T>
+constexpr int save(const T&) {
+    return 1;
+}
+constexpr int save(...) {
+    return 0;
+}
+static_assert(save(User{}) == 1);
+static_assert(save(Plain{}) == 0);
+
 // The untyped list.
 static_assert(reflect::get_annotations_of<User>().size() == 5);
 static_assert(reflect::get_annotations_of<Plain>().empty());

@@ -121,6 +121,20 @@ consteval std::optional<A> find_annotation(D) {
     return annotated<D::native()>::template find_annotation<A>();
 }
 
+/// The annotation of type A, or `fallback` if there is none:
+///
+///     int width = reflect::get_annotation_or<Width>(field, Width{10}).value;
+template <typename A, typename T>
+consteval A get_annotation_or(A fallback) {
+    std::optional<A> found = annotated<^^T>::template find_annotation<A>();
+    return found ? *found : fallback;
+}
+template <typename A, descriptor D>
+consteval A get_annotation_or(D, A fallback) {
+    std::optional<A> found = annotated<D::native()>::template find_annotation<A>();
+    return found ? *found : fallback;
+}
+
 template <typename A, typename T>
 consteval auto get_annotations() {
     return annotated<^^T>::template get_annotations<A>();
@@ -129,6 +143,14 @@ template <typename A, descriptor D>
 consteval auto get_annotations(D) {
     return annotated<D::native()>::template get_annotations<A>();
 }
+
+/// A type that carries an annotation of type A. Lets a function accept only
+/// types that opted in:
+///
+///     template <reflect::annotated_with<Serializable> T>
+///     void save(const T& object);
+template <typename T, typename A>
+concept annotated_with = has_annotation<A, T>();
 
 /// Every annotation on the type T, as a list of annotation proxies.
 template <typename T>
