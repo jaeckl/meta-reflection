@@ -187,3 +187,7 @@ listed in [Troubleshooting](docs/troubleshooting.md#known-compiler-problems).
 
 Bug reports, questions and pull requests are welcome. See
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
