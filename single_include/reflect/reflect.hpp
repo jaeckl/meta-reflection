@@ -492,100 +492,6 @@ constexpr void for_each_base(Fn&& fn) {
 }
 
 }  // namespace reflect
-// ---- enumerator.hpp --------------------------------------------------------
-
-namespace reflect {
-
-/// One enumerator of an enumeration.
-template <std::meta::info Info>
-    requires(std::meta::is_enumerator(Info))
-struct enumerator : annotated<Info> {
-    /// The enumeration type.
-    using type = [:std::meta::type_of(Info):];
-
-    static constexpr std::string_view name() {
-        return std::meta::identifier_of(Info);
-    }
-    static constexpr type value() { return std::meta::extract<type>(Info); }
-};
-
-template <typename E>
-    requires std::is_enum_v<E>
-using enumerators_of_t =
-    [:detail::make_list(^^enumerator, std::meta::enumerators_of(^^E)):];
-
-/// The enumerators of E, in declaration order.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr enumerators_of_t<E> get_enumerators_of() {
-    return {};
-}
-
-/// Calls fn(enumerator) for every enumerator of E.
-template <typename E, typename Fn>
-    requires std::is_enum_v<E>
-constexpr void for_each_enumerator(Fn&& fn) {
-    enumerators_of_t<E>::for_each(fn);
-}
-
-namespace detail {
-
-template <typename E, std::meta::info... Infos>
-constexpr std::array<E, sizeof...(Infos)> enum_values(list<enumerator, Infos...>) {
-    return {enumerator<Infos>::value()...};
-}
-
-}  // namespace detail
-
-/// The number of enumerators of E.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr std::size_t enum_count() {
-    return enumerators_of_t<E>::size();
-}
-
-/// All values of E as an array, in declaration order.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr std::array<E, enumerators_of_t<E>::size()> enum_values() {
-    return detail::enum_values<E>(enumerators_of_t<E>{});
-}
-
-/// All enumerator names of E as an array, in declaration order.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr std::array<std::string_view, enumerators_of_t<E>::size()> enum_names() {
-    return enumerators_of_t<E>::names();
-}
-
-/// The name of an enumerator: enum_name(Role::Admin) == "Admin".
-/// Empty if no enumerator has that value. If several enumerators share the
-/// value, the first one declared wins.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr std::string_view enum_name(E value) {
-    std::string_view result;
-    for_each_enumerator<E>([&](auto e) {
-        if (result.empty() && e.value() == value)
-            result = e.name();
-    });
-    return result;
-}
-
-/// The enumerator with that name, or nullopt. The match is exact and case
-/// sensitive.
-template <typename E>
-    requires std::is_enum_v<E>
-constexpr std::optional<E> enum_cast(std::string_view name) {
-    std::optional<E> result;
-    for_each_enumerator<E>([&](auto e) {
-        if (!result && e.name() == name)
-            result = e.value();
-    });
-    return result;
-}
-
-}  // namespace reflect
 // ---- string.hpp ------------------------------------------------------------
 
 namespace reflect {
@@ -637,231 +543,6 @@ struct fixed_string {
 
     constexpr std::string_view view() const { return {text, N - 1}; }
 };
-
-}  // namespace reflect
-// ---- field.hpp -------------------------------------------------------------
-
-namespace reflect {
-
-/// A non-static data member.
-///
-/// The member is part of the type (field<^^User::id>), so every function is
-/// static and a field object is empty. That is what lets a generic lambda ask
-/// compile-time questions about its `auto field` parameter.
-template <std::meta::info Info>
-    requires(std::meta::is_nonstatic_data_member(Info))
-struct field : annotated<Info> {
-    /// The declared type of the member. Keeps const and references.
-    using type = [:std::meta::type_of(Info):];
-    /// The class that declares the member.
-    using declaring_type = [:std::meta::parent_of(Info):];
-
-    /// False for an unnamed member, such as an anonymous union.
-    static consteval bool has_name() { return std::meta::has_identifier(Info); }
-    static constexpr std::string_view name() {
-        return std::meta::identifier_of(Info);
-    }
-
-    static consteval bool is_public() { return std::meta::is_public(Info); }
-    static consteval bool is_protected() { return std::meta::is_protected(Info); }
-    static consteval bool is_private() { return std::meta::is_private(Info); }
-    static consteval bool is_mutable() {
-        return std::meta::is_mutable_member(Info);
-    }
-    static consteval bool is_bit_field() { return std::meta::is_bit_field(Info); }
-    static consteval bool has_default_initializer() {
-        return std::meta::has_default_member_initializer(Info);
-    }
-    /// Offset in bytes from the start of declaring_type.
-    static consteval std::size_t offset() {
-        return std::meta::offset_of(Info).bytes;
-    }
-
-    /// The member of `object`. A reference that follows the constness and
-    /// value category of `object`; a bit-field comes back by value, because
-    /// no reference can bind to one.
-    template <typename Object>
-    static constexpr decltype(auto) get(Object&& object) {
-        if constexpr (std::meta::is_bit_field(Info)) {
-            return static_cast<type>(std::forward<Object>(object).[:Info:]);
-        } else {
-            return (std::forward<Object>(object).[:Info:]);
-        }
-    }
-
-    /// Assigns to the member of `object`.
-    template <typename Object, typename Value>
-    static constexpr void set(Object& object, Value&& value) {
-        object.[:Info:] = std::forward<Value>(value);
-    }
-
-    /// Pointer to member. Not available for bit-fields and reference members.
-    static constexpr auto pointer() { return &[:Info:]; }
-};
-
-namespace detail {
-
-consteval void collect_all_fields(std::meta::info type, access_context access,
-                                  std::vector<std::meta::info>& seen_virtual,
-                                  std::vector<std::meta::info>& fields) {
-    for (std::meta::info base : std::meta::bases_of(type, access)) {
-        std::meta::info base_type = std::meta::type_of(base);
-        if (std::meta::is_virtual(base)) {
-            if (std::ranges::contains(seen_virtual, base_type))
-                continue;
-            seen_virtual.push_back(base_type);
-        }
-        collect_all_fields(base_type, access, seen_virtual, fields);
-    }
-    for (std::meta::info member :
-         std::meta::nonstatic_data_members_of(type, access))
-        fields.push_back(member);
-}
-
-consteval std::vector<std::meta::info> all_fields_of(std::meta::info type,
-                                                     access_context access) {
-    std::vector<std::meta::info> seen_virtual;
-    std::vector<std::meta::info> fields;
-    collect_all_fields(type, access, seen_virtual, fields);
-    return fields;
-}
-
-consteval std::meta::info field_named(std::meta::info type,
-                                      std::string_view name) {
-    for (std::meta::info member :
-         std::meta::nonstatic_data_members_of(type, unchecked_access)) {
-        if (std::meta::has_identifier(member) &&
-            std::meta::identifier_of(member) == name)
-            return member;
-    }
-    throw std::meta::exception(
-        "reflect::get_field_of: no field with that name", type);
-}
-
-template <typename Class, typename Member>
-Class class_of_member(Member Class::*);
-
-// Is Pointer the address of the member Info? Bit-fields and reference
-// members have no address, so they never match.
-template <auto Pointer, std::meta::info Info>
-consteval bool is_member_pointer_to() {
-    if constexpr (std::meta::is_bit_field(Info) ||
-                  std::is_reference_v<typename field<Info>::type>) {
-        return false;
-    } else if constexpr (!std::same_as<decltype(&[:Info:]), decltype(Pointer)>) {
-        return false;
-    } else {
-        return &[:Info:] == Pointer;
-    }
-}
-
-template <auto Pointer, std::meta::info... Infos>
-consteval std::meta::info field_at(list<field, Infos...>) {
-    std::meta::info result{};
-    bool found = ((is_member_pointer_to<Pointer, Infos>() ? (result = Infos, true)
-                                                          : false) ||
-                  ...);
-    if (!found)
-        throw std::meta::exception(
-            "reflect::get_field_of: the pointer does not name a field declared "
-            "by that class",
-            ^^void);
-    return result;
-}
-
-template <std::meta::info... Infos>
-std::tuple<typename field<Infos>::type...> field_types(list<field, Infos...>);
-
-}  // namespace detail
-
-template <typename T, access_context Access = default_access>
-using fields_of_t = [:detail::make_list(
-                          ^^field,
-                          std::meta::nonstatic_data_members_of(^^T, Access)):];
-
-template <typename T, access_context Access = default_access>
-using all_fields_of_t =
-    [:detail::make_list(^^field, detail::all_fields_of(^^T, Access)):];
-
-/// The fields T declares itself, in declaration order.
-template <typename T, access_context Access = default_access>
-constexpr fields_of_t<T, Access> get_fields_of() {
-    return {};
-}
-
-/// The fields of T including inherited ones: base classes first, then T.
-/// A virtual base contributes once.
-template <typename T, access_context Access = default_access>
-constexpr all_fields_of_t<T, Access> get_all_fields_of() {
-    return {};
-}
-
-/// One field by name: reflect::get_field_of<User, "id">().
-/// A compile error if T declares no field with that name.
-template <typename T, fixed_string Name>
-constexpr auto get_field_of() {
-    return field<detail::field_named(^^T, Name.view())>{};
-}
-
-/// One field by pointer to member: reflect::get_field_of<&User::id>().
-///
-/// Unlike the name form this survives a rename done by a refactoring tool.
-/// It cannot reach bit-fields, reference members or private members, because
-/// none of those have a pointer you can write down.
-template <auto Pointer>
-    requires std::is_member_object_pointer_v<decltype(Pointer)>
-constexpr auto get_field_of() {
-    using Class = decltype(detail::class_of_member(Pointer));
-    return field<detail::field_at<Pointer>(fields_of_t<Class, unchecked_access>{})>{};
-}
-
-/// True if T declares a field with that name: has_field<User, "id">().
-template <typename T, fixed_string Name>
-consteval bool has_field() {
-    for (std::meta::info member :
-         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
-        if (std::meta::has_identifier(member) &&
-            std::meta::identifier_of(member) == Name.view())
-            return true;
-    }
-    return false;
-}
-
-/// The position of a field in get_fields_of<T>(), counted from 0.
-/// A compile error if T declares no field with that name.
-template <typename T, fixed_string Name>
-consteval std::size_t field_index_of() {
-    std::size_t index = 0;
-    for (std::meta::info member :
-         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
-        if (std::meta::has_identifier(member) &&
-            std::meta::identifier_of(member) == Name.view())
-            return index;
-        ++index;
-    }
-    throw std::meta::exception(
-        "reflect::field_index_of: no field with that name", ^^T);
-}
-
-/// The field types of T as a tuple type:
-/// field_types_t<Point> is std::tuple<int, int>.
-template <typename T, access_context Access = default_access>
-using field_types_t = decltype(detail::field_types(fields_of_t<T, Access>{}));
-
-/// Calls fn(field) for every field of T.
-template <typename T, access_context Access = default_access, typename Fn>
-constexpr void for_each_field(Fn&& fn) {
-    fields_of_t<T, Access>::for_each(fn);
-}
-
-/// Calls fn(field, value) for every field of `object`. `value` is a reference
-/// to the member inside `object`.
-template <access_context Access = default_access, typename Object, typename Fn>
-    requires std::is_class_v<std::remove_cvref_t<Object>>
-constexpr void for_each_field(Object&& object, Fn&& fn) {
-    fields_of_t<std::remove_cvref_t<Object>, Access>::for_each(
-        [&](auto f) { fn(f, f.get(std::forward<Object>(object))); });
-}
 
 }  // namespace reflect
 // ---- function.hpp ----------------------------------------------------------
@@ -1149,6 +830,630 @@ constexpr void for_each_function(Fn&& fn) {
 }
 
 }  // namespace reflect
+// ---- parameter.hpp ---------------------------------------------------------
+
+namespace reflect {
+
+/// One parameter of a member function.
+///
+/// Identified by the function and a position rather than by a reflection of
+/// the parameter itself. GCC 16 crashes while writing debug information for
+/// a template that has a parameter reflection as its argument.
+template <std::meta::info Function, std::size_t Index>
+    requires(std::meta::is_function(Function) &&
+             Index < std::meta::parameters_of(Function).size())
+struct parameter {
+    static consteval std::meta::info native() {
+        return std::meta::parameters_of(Function)[Index];
+    }
+
+    /// The parameter type as declared.
+    using type =
+        [:std::meta::type_of(std::meta::parameters_of(Function)[Index]):];
+
+    /// Position in the parameter list, counted from 0.
+    static consteval std::size_t index() { return Index; }
+
+    /// False for an unnamed parameter, and for one whose name differs
+    /// between two declarations of the function.
+    static consteval bool has_name() {
+        return std::meta::has_identifier(native());
+    }
+    static constexpr std::string_view name() {
+        return std::meta::identifier_of(native());
+    }
+
+    static consteval bool has_default_argument() {
+        return std::meta::has_default_argument(native());
+    }
+
+    template <typename A>
+    static consteval bool has_annotation() {
+        return annotated<native()>::template has_annotation<A>();
+    }
+    template <typename A>
+    static consteval A get_annotation() {
+        return annotated<native()>::template get_annotation<A>();
+    }
+    template <typename A>
+    static consteval auto find_annotation() {
+        return annotated<native()>::template find_annotation<A>();
+    }
+    template <typename A>
+    static consteval auto get_annotations() {
+        return annotated<native()>::template get_annotations<A>();
+    }
+    static constexpr auto annotations() {
+        return annotations_of_t<native()>{};
+    }
+};
+
+namespace detail {
+
+template <std::meta::info Function, typename Fn, std::size_t... I>
+constexpr void for_each_parameter(Fn& fn, std::index_sequence<I...>) {
+    (static_cast<void>(fn(parameter<Function, I>{})), ...);
+}
+
+template <std::meta::info Function, std::size_t... I>
+constexpr std::array<std::string_view, sizeof...(I)> parameter_names(
+    std::index_sequence<I...>) {
+    return {(parameter<Function, I>::has_name()
+                 ? parameter<Function, I>::name()
+                 : std::string_view{})...};
+}
+
+}  // namespace detail
+
+/// A proxy for something that has parameters: a function or a constructor.
+template <typename D>
+concept has_parameters = descriptor<D> && std::meta::is_function(D::native());
+
+/// Parameter I of a function or constructor: get_parameter_of<0>(function).
+template <std::size_t I, has_parameters D>
+constexpr parameter<D::native(), I> get_parameter_of(D) {
+    return {};
+}
+
+/// Calls fn(parameter) for every parameter of a function or constructor,
+/// left to right.
+template <has_parameters D, typename Fn>
+constexpr void for_each_parameter(D, Fn&& fn) {
+    detail::for_each_parameter<D::native()>(
+        fn, std::make_index_sequence<std::meta::parameters_of(D::native()).size()>{});
+}
+
+/// The parameter names of a function or constructor as a plain array. An
+/// unnamed parameter gives an empty string.
+template <has_parameters D>
+constexpr auto get_parameter_names_of(D) {
+    return detail::parameter_names<D::native()>(
+        std::make_index_sequence<std::meta::parameters_of(D::native()).size()>{});
+}
+
+}  // namespace reflect
+// ---- constructor.hpp -------------------------------------------------------
+
+namespace reflect {
+
+namespace detail {
+
+// A constructor cannot be spliced the way a member function can, so calling
+// one specific constructor needs a detour: a function with exactly the
+// parameters of that constructor. Arguments convert at its boundary, and the
+// call inside then matches the constructor exactly.
+template <std::meta::info Constructor,
+          typename Indices = std::make_index_sequence<
+              std::meta::parameters_of(Constructor).size()>>
+struct constructor_thunk;
+
+template <std::meta::info Constructor, std::size_t... I>
+struct constructor_thunk<Constructor, std::index_sequence<I...>> {
+    using type = [:std::meta::parent_of(Constructor):];
+
+    static constexpr type call(
+        typename parameter<Constructor, I>::type... arguments) {
+        return type(
+            static_cast<typename parameter<Constructor, I>::type&&>(arguments)...);
+    }
+};
+
+}  // namespace detail
+
+/// A constructor of a class.
+template <std::meta::info Info>
+    requires(std::meta::is_constructor(Info))
+struct constructor : annotated<Info> {
+    /// The class the constructor belongs to, which is what it builds.
+    using declaring_type = [:std::meta::parent_of(Info):];
+
+    /// The type of parameter I, as declared.
+    template <std::size_t I>
+    using parameter_type =
+        [:std::meta::type_of(std::meta::parameters_of(Info)[I]):];
+
+    /// The number of parameters.
+    static consteval std::size_t arity() {
+        return std::meta::parameters_of(Info).size();
+    }
+
+    /// True if the constructor can be called without arguments.
+    static consteval bool is_default() {
+        return std::meta::is_default_constructor(Info);
+    }
+    static consteval bool is_copy() { return std::meta::is_copy_constructor(Info); }
+    static consteval bool is_move() { return std::meta::is_move_constructor(Info); }
+    static consteval bool is_explicit() { return std::meta::is_explicit(Info); }
+    static consteval bool is_noexcept() { return std::meta::is_noexcept(Info); }
+    static consteval bool is_public() { return std::meta::is_public(Info); }
+    static consteval bool is_protected() { return std::meta::is_protected(Info); }
+    static consteval bool is_private() { return std::meta::is_private(Info); }
+
+    /// Builds an object with exactly this constructor. The arguments are
+    /// converted to the parameter types as in an ordinary call; which
+    /// constructor runs is already decided.
+    ///
+    /// Only for public constructors. Reflection can read a private field,
+    /// but it cannot call a private constructor.
+    template <typename... Args>
+        requires(sizeof...(Args) == std::meta::parameters_of(Info).size())
+    static constexpr declaring_type invoke(Args&&... args) {
+        static_assert(std::meta::is_public(Info),
+                      "reflect::constructor::invoke: only a public constructor "
+                      "can be called");
+        return detail::constructor_thunk<Info>::call(std::forward<Args>(args)...);
+    }
+};
+
+namespace detail {
+
+// Copy and move constructors are left out: they are not a way to build an
+// object from its parts. So is anything deleted.
+consteval std::vector<std::meta::info> constructors_of(std::meta::info type,
+                                                       access_context access) {
+    std::vector<std::meta::info> constructors;
+    for (std::meta::info member : std::meta::members_of(type, access)) {
+        if (std::meta::is_constructor(member) &&
+            !std::meta::is_copy_constructor(member) &&
+            !std::meta::is_move_constructor(member) &&
+            !std::meta::is_deleted(member))
+            constructors.push_back(member);
+    }
+    return constructors;
+}
+
+// The parameter type the way a caller would write it: no alias, and no
+// top-level const, which is not part of a signature.
+consteval std::meta::info plain_parameter_type(std::meta::info type) {
+    return std::meta::remove_cv(std::meta::dealias(type));
+}
+
+consteval std::meta::info constructor_with(
+    std::meta::info type, const std::vector<std::meta::info>& wanted) {
+    for (std::meta::info candidate : constructors_of(type, unchecked_access)) {
+        std::vector<std::meta::info> parameters = std::meta::parameters_of(candidate);
+        if (parameters.size() != wanted.size())
+            continue;
+        bool same = true;
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            if (plain_parameter_type(std::meta::type_of(parameters[i])) !=
+                plain_parameter_type(wanted[i]))
+                same = false;
+        }
+        if (same)
+            return candidate;
+    }
+    throw std::meta::exception(
+        "reflect::get_constructor_of: no constructor with these parameter types",
+        type);
+}
+
+// The constructor reflect::construct<T>(fn) uses: the only public one that
+// takes arguments.
+consteval std::meta::info only_constructor(std::meta::info type) {
+    std::meta::info found{};
+    std::size_t count = 0;
+    for (std::meta::info candidate : constructors_of(type, public_access)) {
+        if (std::meta::parameters_of(candidate).empty())
+            continue;
+        found = candidate;
+        ++count;
+    }
+    if (count != 1)
+        throw std::meta::exception(
+            "reflect::construct: the class needs exactly one public constructor "
+            "that takes arguments; otherwise pick one, for example "
+            "construct(get_constructor_of<T, int, std::string>(), fn)",
+            type);
+    return found;
+}
+
+template <std::meta::info Constructor, typename Fn, std::size_t... I>
+constexpr typename constructor<Constructor>::declaring_type construct(
+    Fn& fn, std::index_sequence<I...>) {
+    // The arguments of a call are evaluated in no particular order, the
+    // elements of a braced list from left to right. A callback that reads
+    // from a stream depends on that.
+    [[maybe_unused]] std::tuple<decltype(fn(parameter<Constructor, I>{}))...> arguments{
+        fn(parameter<Constructor, I>{})...};
+    return constructor<Constructor>::invoke(std::get<I>(std::move(arguments))...);
+}
+
+}  // namespace detail
+
+template <typename T, access_context Access = default_access>
+using constructors_of_t =
+    [:detail::make_list(^^constructor, detail::constructors_of(^^T, Access)):];
+
+/// The constructors of T, in declaration order, without the copy and the
+/// move constructor. Includes the default constructor the compiler declares.
+template <typename T, access_context Access = default_access>
+constexpr constructors_of_t<T, Access> get_constructors_of() {
+    return {};
+}
+
+/// One constructor, picked by its parameter types:
+///
+///     get_constructor_of<User, int, std::string>()   // User(int, std::string)
+///     get_constructor_of<User>()                     // User()
+///
+/// A compile error if T has no such constructor.
+template <typename T, typename... Parameters>
+constexpr auto get_constructor_of() {
+    return constructor<detail::constructor_with(^^T, {^^Parameters...})>{};
+}
+
+/// Calls fn(constructor) for every constructor of T.
+template <typename T, access_context Access = default_access, typename Fn>
+constexpr void for_each_constructor(Fn&& fn) {
+    constructors_of_t<T, Access>::for_each(fn);
+}
+
+/// Builds an object by asking fn(parameter) for every argument of a
+/// constructor, from left to right:
+///
+///     reflect::construct(reflect::get_constructor_of<User, int, std::string>(),
+///                        [&](auto parameter) { return read(parameter.name()); });
+template <std::meta::info Constructor, typename Fn>
+constexpr typename constructor<Constructor>::declaring_type construct(
+    constructor<Constructor>, Fn&& fn) {
+    return detail::construct<Constructor>(
+        fn, std::make_index_sequence<constructor<Constructor>::arity()>{});
+}
+
+/// Like the form above, for a class that has exactly one public constructor
+/// that takes arguments: reflect::construct<Connection>(fn).
+///
+/// This is how to build a class that reflect::make cannot: one that is not
+/// an aggregate and has no default constructor.
+template <typename T, typename Fn>
+    requires std::is_class_v<T>
+constexpr T construct(Fn&& fn) {
+    return detail::construct<detail::only_constructor(^^T)>(
+        fn, std::make_index_sequence<
+                std::meta::parameters_of(detail::only_constructor(^^T)).size()>{});
+}
+
+}  // namespace reflect
+// ---- enumerator.hpp --------------------------------------------------------
+
+namespace reflect {
+
+/// One enumerator of an enumeration.
+template <std::meta::info Info>
+    requires(std::meta::is_enumerator(Info))
+struct enumerator : annotated<Info> {
+    /// The enumeration type.
+    using type = [:std::meta::type_of(Info):];
+
+    static constexpr std::string_view name() {
+        return std::meta::identifier_of(Info);
+    }
+    static constexpr type value() { return std::meta::extract<type>(Info); }
+};
+
+template <typename E>
+    requires std::is_enum_v<E>
+using enumerators_of_t =
+    [:detail::make_list(^^enumerator, std::meta::enumerators_of(^^E)):];
+
+/// The enumerators of E, in declaration order.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr enumerators_of_t<E> get_enumerators_of() {
+    return {};
+}
+
+/// Calls fn(enumerator) for every enumerator of E.
+template <typename E, typename Fn>
+    requires std::is_enum_v<E>
+constexpr void for_each_enumerator(Fn&& fn) {
+    enumerators_of_t<E>::for_each(fn);
+}
+
+namespace detail {
+
+template <typename E, std::meta::info... Infos>
+constexpr std::array<E, sizeof...(Infos)> enum_values(list<enumerator, Infos...>) {
+    return {enumerator<Infos>::value()...};
+}
+
+}  // namespace detail
+
+/// The number of enumerators of E.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr std::size_t enum_count() {
+    return enumerators_of_t<E>::size();
+}
+
+/// All values of E as an array, in declaration order.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr std::array<E, enumerators_of_t<E>::size()> enum_values() {
+    return detail::enum_values<E>(enumerators_of_t<E>{});
+}
+
+/// All enumerator names of E as an array, in declaration order.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr std::array<std::string_view, enumerators_of_t<E>::size()> enum_names() {
+    return enumerators_of_t<E>::names();
+}
+
+/// The name of an enumerator: enum_name(Role::Admin) == "Admin".
+/// Empty if no enumerator has that value. If several enumerators share the
+/// value, the first one declared wins.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr std::string_view enum_name(E value) {
+    std::string_view result;
+    for_each_enumerator<E>([&](auto e) {
+        if (result.empty() && e.value() == value)
+            result = e.name();
+    });
+    return result;
+}
+
+/// The enumerator with that name, or nullopt. The match is exact and case
+/// sensitive.
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr std::optional<E> enum_cast(std::string_view name) {
+    std::optional<E> result;
+    for_each_enumerator<E>([&](auto e) {
+        if (!result && e.name() == name)
+            result = e.value();
+    });
+    return result;
+}
+
+}  // namespace reflect
+// ---- field.hpp -------------------------------------------------------------
+
+namespace reflect {
+
+/// A non-static data member.
+///
+/// The member is part of the type (field<^^User::id>), so every function is
+/// static and a field object is empty. That is what lets a generic lambda ask
+/// compile-time questions about its `auto field` parameter.
+template <std::meta::info Info>
+    requires(std::meta::is_nonstatic_data_member(Info))
+struct field : annotated<Info> {
+    /// The declared type of the member. Keeps const and references.
+    using type = [:std::meta::type_of(Info):];
+    /// The class that declares the member.
+    using declaring_type = [:std::meta::parent_of(Info):];
+
+    /// False for an unnamed member, such as an anonymous union.
+    static consteval bool has_name() { return std::meta::has_identifier(Info); }
+    static constexpr std::string_view name() {
+        return std::meta::identifier_of(Info);
+    }
+
+    static consteval bool is_public() { return std::meta::is_public(Info); }
+    static consteval bool is_protected() { return std::meta::is_protected(Info); }
+    static consteval bool is_private() { return std::meta::is_private(Info); }
+    static consteval bool is_mutable() {
+        return std::meta::is_mutable_member(Info);
+    }
+    static consteval bool is_bit_field() { return std::meta::is_bit_field(Info); }
+    static consteval bool has_default_initializer() {
+        return std::meta::has_default_member_initializer(Info);
+    }
+    /// Offset in bytes from the start of declaring_type.
+    static consteval std::size_t offset() {
+        return std::meta::offset_of(Info).bytes;
+    }
+
+    /// The member of `object`. A reference that follows the constness and
+    /// value category of `object`; a bit-field comes back by value, because
+    /// no reference can bind to one.
+    template <typename Object>
+    static constexpr decltype(auto) get(Object&& object) {
+        if constexpr (std::meta::is_bit_field(Info)) {
+            return static_cast<type>(std::forward<Object>(object).[:Info:]);
+        } else {
+            return (std::forward<Object>(object).[:Info:]);
+        }
+    }
+
+    /// Assigns to the member of `object`.
+    template <typename Object, typename Value>
+    static constexpr void set(Object& object, Value&& value) {
+        object.[:Info:] = std::forward<Value>(value);
+    }
+
+    /// Pointer to member. Not available for bit-fields and reference members.
+    static constexpr auto pointer() { return &[:Info:]; }
+};
+
+namespace detail {
+
+consteval void collect_all_fields(std::meta::info type, access_context access,
+                                  std::vector<std::meta::info>& seen_virtual,
+                                  std::vector<std::meta::info>& fields) {
+    for (std::meta::info base : std::meta::bases_of(type, access)) {
+        std::meta::info base_type = std::meta::type_of(base);
+        if (std::meta::is_virtual(base)) {
+            if (std::ranges::contains(seen_virtual, base_type))
+                continue;
+            seen_virtual.push_back(base_type);
+        }
+        collect_all_fields(base_type, access, seen_virtual, fields);
+    }
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(type, access))
+        fields.push_back(member);
+}
+
+consteval std::vector<std::meta::info> all_fields_of(std::meta::info type,
+                                                     access_context access) {
+    std::vector<std::meta::info> seen_virtual;
+    std::vector<std::meta::info> fields;
+    collect_all_fields(type, access, seen_virtual, fields);
+    return fields;
+}
+
+consteval std::meta::info field_named(std::meta::info type,
+                                      std::string_view name) {
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(type, unchecked_access)) {
+        if (std::meta::has_identifier(member) &&
+            std::meta::identifier_of(member) == name)
+            return member;
+    }
+    throw std::meta::exception(
+        "reflect::get_field_of: no field with that name", type);
+}
+
+template <typename Class, typename Member>
+Class class_of_member(Member Class::*);
+
+// Is Pointer the address of the member Info? Bit-fields and reference
+// members have no address, so they never match.
+template <auto Pointer, std::meta::info Info>
+consteval bool is_member_pointer_to() {
+    if constexpr (std::meta::is_bit_field(Info) ||
+                  std::is_reference_v<typename field<Info>::type>) {
+        return false;
+    } else if constexpr (!std::same_as<decltype(&[:Info:]), decltype(Pointer)>) {
+        return false;
+    } else {
+        return &[:Info:] == Pointer;
+    }
+}
+
+template <auto Pointer, std::meta::info... Infos>
+consteval std::meta::info field_at(list<field, Infos...>) {
+    std::meta::info result{};
+    bool found = ((is_member_pointer_to<Pointer, Infos>() ? (result = Infos, true)
+                                                          : false) ||
+                  ...);
+    if (!found)
+        throw std::meta::exception(
+            "reflect::get_field_of: the pointer does not name a field declared "
+            "by that class",
+            ^^void);
+    return result;
+}
+
+template <std::meta::info... Infos>
+std::tuple<typename field<Infos>::type...> field_types(list<field, Infos...>);
+
+}  // namespace detail
+
+template <typename T, access_context Access = default_access>
+using fields_of_t = [:detail::make_list(
+                          ^^field,
+                          std::meta::nonstatic_data_members_of(^^T, Access)):];
+
+template <typename T, access_context Access = default_access>
+using all_fields_of_t =
+    [:detail::make_list(^^field, detail::all_fields_of(^^T, Access)):];
+
+/// The fields T declares itself, in declaration order.
+template <typename T, access_context Access = default_access>
+constexpr fields_of_t<T, Access> get_fields_of() {
+    return {};
+}
+
+/// The fields of T including inherited ones: base classes first, then T.
+/// A virtual base contributes once.
+template <typename T, access_context Access = default_access>
+constexpr all_fields_of_t<T, Access> get_all_fields_of() {
+    return {};
+}
+
+/// One field by name: reflect::get_field_of<User, "id">().
+/// A compile error if T declares no field with that name.
+template <typename T, fixed_string Name>
+constexpr auto get_field_of() {
+    return field<detail::field_named(^^T, Name.view())>{};
+}
+
+/// One field by pointer to member: reflect::get_field_of<&User::id>().
+///
+/// Unlike the name form this survives a rename done by a refactoring tool.
+/// It cannot reach bit-fields, reference members or private members, because
+/// none of those have a pointer you can write down.
+template <auto Pointer>
+    requires std::is_member_object_pointer_v<decltype(Pointer)>
+constexpr auto get_field_of() {
+    using Class = decltype(detail::class_of_member(Pointer));
+    return field<detail::field_at<Pointer>(fields_of_t<Class, unchecked_access>{})>{};
+}
+
+/// True if T declares a field with that name: has_field<User, "id">().
+template <typename T, fixed_string Name>
+consteval bool has_field() {
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
+        if (std::meta::has_identifier(member) &&
+            std::meta::identifier_of(member) == Name.view())
+            return true;
+    }
+    return false;
+}
+
+/// The position of a field in get_fields_of<T>(), counted from 0.
+/// A compile error if T declares no field with that name.
+template <typename T, fixed_string Name>
+consteval std::size_t field_index_of() {
+    std::size_t index = 0;
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
+        if (std::meta::has_identifier(member) &&
+            std::meta::identifier_of(member) == Name.view())
+            return index;
+        ++index;
+    }
+    throw std::meta::exception(
+        "reflect::field_index_of: no field with that name", ^^T);
+}
+
+/// The field types of T as a tuple type:
+/// field_types_t<Point> is std::tuple<int, int>.
+template <typename T, access_context Access = default_access>
+using field_types_t = decltype(detail::field_types(fields_of_t<T, Access>{}));
+
+/// Calls fn(field) for every field of T.
+template <typename T, access_context Access = default_access, typename Fn>
+constexpr void for_each_field(Fn&& fn) {
+    fields_of_t<T, Access>::for_each(fn);
+}
+
+/// Calls fn(field, value) for every field of `object`. `value` is a reference
+/// to the member inside `object`.
+template <access_context Access = default_access, typename Object, typename Fn>
+    requires std::is_class_v<std::remove_cvref_t<Object>>
+constexpr void for_each_field(Object&& object, Fn&& fn) {
+    fields_of_t<std::remove_cvref_t<Object>, Access>::for_each(
+        [&](auto f) { fn(f, f.get(std::forward<Object>(object))); });
+}
+
+}  // namespace reflect
 // ---- static_field.hpp ------------------------------------------------------
 
 namespace reflect {
@@ -1289,6 +1594,13 @@ struct member : annotated<Info> {
     {
         return function<Info>{};
     }
+
+    /// The same member as a constructor proxy. Only for constructors.
+    static constexpr auto as_constructor()
+        requires(std::meta::is_constructor(Info))
+    {
+        return constructor<Info>{};
+    }
 };
 
 template <typename T, access_context Access = default_access>
@@ -1428,103 +1740,6 @@ template <typename T, access_context Access = default_access, typename Fn>
     requires std::is_class_v<T>
 constexpr T make(Fn&& fn) {
     return detail::make<T, Access>(fn);
-}
-
-}  // namespace reflect
-// ---- parameter.hpp ---------------------------------------------------------
-
-namespace reflect {
-
-/// One parameter of a member function.
-///
-/// Identified by the function and a position rather than by a reflection of
-/// the parameter itself. GCC 16 crashes while writing debug information for
-/// a template that has a parameter reflection as its argument.
-template <std::meta::info Function, std::size_t Index>
-    requires(std::meta::is_function(Function) &&
-             Index < std::meta::parameters_of(Function).size())
-struct parameter {
-    static consteval std::meta::info native() {
-        return std::meta::parameters_of(Function)[Index];
-    }
-
-    /// The parameter type as declared.
-    using type =
-        [:std::meta::type_of(std::meta::parameters_of(Function)[Index]):];
-
-    /// Position in the parameter list, counted from 0.
-    static consteval std::size_t index() { return Index; }
-
-    /// False for an unnamed parameter, and for one whose name differs
-    /// between two declarations of the function.
-    static consteval bool has_name() {
-        return std::meta::has_identifier(native());
-    }
-    static constexpr std::string_view name() {
-        return std::meta::identifier_of(native());
-    }
-
-    static consteval bool has_default_argument() {
-        return std::meta::has_default_argument(native());
-    }
-
-    template <typename A>
-    static consteval bool has_annotation() {
-        return annotated<native()>::template has_annotation<A>();
-    }
-    template <typename A>
-    static consteval A get_annotation() {
-        return annotated<native()>::template get_annotation<A>();
-    }
-    template <typename A>
-    static consteval auto find_annotation() {
-        return annotated<native()>::template find_annotation<A>();
-    }
-    template <typename A>
-    static consteval auto get_annotations() {
-        return annotated<native()>::template get_annotations<A>();
-    }
-    static constexpr auto annotations() {
-        return annotations_of_t<native()>{};
-    }
-};
-
-namespace detail {
-
-template <std::meta::info Function, typename Fn, std::size_t... I>
-constexpr void for_each_parameter(Fn& fn, std::index_sequence<I...>) {
-    (static_cast<void>(fn(parameter<Function, I>{})), ...);
-}
-
-template <std::meta::info Function, std::size_t... I>
-constexpr std::array<std::string_view, sizeof...(I)> parameter_names(
-    std::index_sequence<I...>) {
-    return {(parameter<Function, I>::has_name()
-                 ? parameter<Function, I>::name()
-                 : std::string_view{})...};
-}
-
-}  // namespace detail
-
-/// Parameter I of a function: get_parameter_of<0>(function).
-template <std::size_t I, std::meta::info Function>
-constexpr parameter<Function, I> get_parameter_of(function<Function>) {
-    return {};
-}
-
-/// Calls fn(parameter) for every parameter of a function, left to right.
-template <std::meta::info Function, typename Fn>
-constexpr void for_each_parameter(function<Function>, Fn&& fn) {
-    detail::for_each_parameter<Function>(
-        fn, std::make_index_sequence<function<Function>::arity()>{});
-}
-
-/// The parameter names of a function as a plain array. An unnamed parameter
-/// gives an empty string.
-template <std::meta::info Function>
-constexpr auto get_parameter_names_of(function<Function>) {
-    return detail::parameter_names<Function>(
-        std::make_index_sequence<function<Function>::arity()>{});
 }
 
 }  // namespace reflect

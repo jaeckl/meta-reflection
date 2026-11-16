@@ -50,6 +50,7 @@ output.
   - [Walk two objects side by side](#walk-two-objects-side-by-side)
   - [Find a field by a run-time name](#find-a-field-by-a-run-time-name)
   - [Build an object from input](#build-an-object-from-input)
+  - [Build an object through its constructor](#build-an-object-through-its-constructor)
   - [Stop a loop early](#stop-a-loop-early)
 - [Field metadata as plain data](#field-metadata-as-plain-data)
 - [When the library does not cover it](#when-the-library-does-not-cover-it)
@@ -1013,6 +1014,79 @@ std::cout << user.id << ' ' << user.name << ' ' << user.age << '\n';
 
 The return type `-> typename decltype(field)::type` says "return whatever
 type this field has".
+
+`make` asks for inherited fields too, base classes first. It needs a type
+it can fill field by field: a plain struct, or a class with a default
+constructor. For everything else there is `construct`.
+
+### Build an object through its constructor
+
+Many classes keep their fields private and can only be created through a
+constructor:
+
+```cpp
+class Connection {
+public:
+    Connection(std::string host, int port) : host_(std::move(host)), port_(port) {}
+
+    const std::string& host() const { return host_; }
+    int port() const { return port_; }
+
+private:
+    std::string host_;
+    int port_;
+};
+```
+
+`construct` asks your function for each constructor argument, by parameter
+name, and calls the constructor with the answers:
+
+```cpp
+std::map<std::string, std::string> settings{{"host", "example.org"}, {"port", "443"}};
+
+Connection connection = reflect::construct<Connection>(
+    [&](auto parameter) -> typename decltype(parameter)::type {
+        const std::string& text = settings.at(std::string(parameter.name()));
+        if constexpr (std::is_same_v<typename decltype(parameter)::type, int>)
+            return std::stoi(text);
+        else
+            return text;
+    });
+
+std::cout << connection.host() << ':' << connection.port() << '\n';
+```
+
+```text
+example.org:443
+```
+
+`construct<T>(fn)` works when the class has exactly one public constructor
+that takes arguments. If it has several, say which one you mean by its
+parameter types:
+
+```cpp
+auto constructor = reflect::get_constructor_of<Connection, std::string, int>();
+
+Connection local = constructor.invoke("localhost", 8080);
+std::cout << local.host() << ':' << local.port() << '\n';
+
+reflect::for_each_parameter(constructor, [](auto parameter) {
+    std::cout << parameter.name() << '\n';
+});
+```
+
+```text
+localhost:8080
+host
+port
+```
+
+`reflect::construct(constructor, fn)` combines the two: a chosen
+constructor, filled by a callback. `get_constructors_of<T>()` lists all
+constructors of a class.
+
+Only public constructors can be called. Reflection can read a private
+field, but the language does not let it call a private constructor.
 
 ### Stop a loop early
 

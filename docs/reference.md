@@ -14,6 +14,7 @@ see the [Getting Started Guide](getting-started.md).
   - [field](#field)
   - [static_field](#static_field)
   - [function](#function)
+  - [constructor](#constructor)
   - [parameter](#parameter)
   - [base](#base)
   - [enumerator](#enumerator)
@@ -22,6 +23,7 @@ see the [Getting Started Guide](getting-started.md).
 - [list](#list)
 - [Annotation functions](#annotation-functions)
 - [Whole objects](#whole-objects)
+- [Constructing objects](#constructing-objects)
 - [Calling functions by name](#calling-functions-by-name)
 - [Enums](#enums)
 - [Types](#types)
@@ -38,7 +40,8 @@ see the [Getting Started Guide](getting-started.md).
 - `T` is a complete class type, `E` a complete enumeration type, `A` an
   annotation type.
 - A **proxy** is an object of one of the types `field`, `static_field`,
-  `function`, `parameter`, `base`, `enumerator`, `member` or `annotation`.
+  `function`, `constructor`, `parameter`, `base`, `enumerator`, `member` or
+  `annotation`.
   Proxies are empty; what they stand for is part of their type. All their
   member functions are `static`, and can be called on an object
   (`field.name()`) or on the type (`Field::name()`).
@@ -70,13 +73,14 @@ can be included on their own.
 | `reflect/access.hpp` | access policies, `descriptor` |
 | `reflect/annotation.hpp` | `annotation`, annotation functions, `annotated_with` |
 | `reflect/base.hpp` | `base`, `get_bases_of`, `for_each_base` |
+| `reflect/constructor.hpp` | `constructor`, `get_constructors_of`, `get_constructor_of`, `for_each_constructor`, `construct` |
 | `reflect/enumerator.hpp` | `enumerator`, `enum_name`, `enum_cast`, `enum_values`, `enum_names`, `enum_count` |
 | `reflect/field.hpp` | `field`, `get_fields_of`, `get_all_fields_of`, `get_field_of`, `has_field`, `field_index_of`, `field_types_t`, `for_each_field` |
 | `reflect/function.hpp` | `function`, `get_functions_of`, `get_function_of`, `has_function`, `for_each_function`, `invoke` |
 | `reflect/list.hpp` | `list` |
 | `reflect/member.hpp` | `member`, `member_kind`, `get_members_of`, `for_each_member` |
 | `reflect/object.hpp` | `tie`, `make`, `visit_field`, `for_each_field_while`, two-object `for_each_field` |
-| `reflect/parameter.hpp` | `parameter`, `get_parameter_of`, `get_parameter_names_of`, `for_each_parameter` |
+| `reflect/parameter.hpp` | `parameter`, `has_parameters`, `get_parameter_of`, `get_parameter_names_of`, `for_each_parameter` |
 | `reflect/static_field.hpp` | `static_field`, `get_static_fields_of`, `for_each_static_field` |
 | `reflect/string.hpp` | `static_string`, `fixed_string` |
 | `reflect/table.hpp` | `field_info`, `field_table` |
@@ -127,6 +131,7 @@ template <typename T, access_context Access = default_access> constexpr auto get
 template <typename T, access_context Access = default_access> constexpr auto get_all_fields_of();
 template <typename T, access_context Access = default_access> constexpr auto get_static_fields_of();
 template <typename T, access_context Access = default_access> constexpr auto get_functions_of();
+template <typename T, access_context Access = default_access> constexpr auto get_constructors_of();
 template <typename T, access_context Access = default_access> constexpr auto get_members_of();
 template <typename T, access_context Access = default_access> constexpr auto get_bases_of();
 template <typename E>                                         constexpr auto get_enumerators_of();
@@ -140,6 +145,7 @@ template <descriptor D>                                       constexpr auto get
 | `get_all_fields_of<T>()` | `field` | The fields of every base class first, depth first in base order, then those of `T`. A virtual base contributes once. |
 | `get_static_fields_of<T>()` | `static_field` | Static data members declared by `T`. |
 | `get_functions_of<T>()` | `function` | Member functions declared by `T` that have a name, static and non-static. Each overload is its own element. Constructors, destructors, operators, conversion functions, deleted functions and function templates are not included. |
+| `get_constructors_of<T>()` | `constructor` | The constructors of `T`, including a default constructor the compiler declares. The copy constructor, the move constructor, deleted constructors, constructor templates and constructors inherited with `using Base::Base;` are not included. |
 | `get_members_of<T>()` | `member` | Everything, unfiltered, including implicitly declared special member functions. |
 | `get_bases_of<T>()` | `base` | Direct base classes, in declaration order. |
 | `get_enumerators_of<E>()` | `enumerator` | Enumerators, in declaration order. |
@@ -161,9 +167,15 @@ template <typename T, fixed_string Name, typename Signature> constexpr auto get_
 template <auto Pointer>                                      constexpr auto get_function_of();   // function
 template <typename T, fixed_string Name>                     consteval bool has_function();
 
+// Constructors
+template <typename T, typename... Parameters> constexpr auto get_constructor_of();              // constructor
+
 // Parameters
-template <std::size_t I, std::meta::info F> constexpr auto get_parameter_of(function<F>);        // parameter
-template <std::meta::info F>                constexpr auto get_parameter_names_of(function<F>);  // std::array<std::string_view, N>
+template <typename D>
+concept has_parameters = descriptor<D> && std::meta::is_function(D::native());
+
+template <std::size_t I, has_parameters D> constexpr auto get_parameter_of(D proxy);             // parameter
+template <has_parameters D>                constexpr auto get_parameter_names_of(D proxy);       // std::array<std::string_view, N>
 ```
 
 | Call | Result |
@@ -177,8 +189,12 @@ template <std::meta::info F>                constexpr auto get_parameter_names_o
 | `get_function_of<User, "f", int(double) const>()` | The overload with exactly that signature. Compile error if there is none. |
 | `get_function_of<&User::f>()` | The function a pointer to member function points to. For an overloaded function the pointer needs a cast that selects one. Not available for static member functions. |
 | `has_function<User, "f">()` | Whether `User` declares a member function with that name. |
-| `get_parameter_of<0>(function)` | The first parameter of a function. |
-| `get_parameter_names_of(function)` | The parameter names. An unnamed parameter gives an empty string. |
+| `get_constructor_of<User, int, std::string>()` | The constructor `User(int, std::string)`. The parameter types are compared without top-level `const`; references count. Compile error if there is none. |
+| `get_constructor_of<User>()` | The default constructor, if it takes no parameters. |
+| `get_parameter_of<0>(proxy)` | The first parameter of a function or constructor. |
+| `get_parameter_names_of(proxy)` | The parameter names. An unnamed parameter gives an empty string. |
+
+`has_parameters` is satisfied by `function` and `constructor` proxies.
 
 A **signature** is a function type, written as the function is declared:
 return type, parameter types, and a trailing `const`, `&` or `&&` where the
@@ -218,8 +234,10 @@ template <typename T, access_context Access = default_access, typename Fn>
 constexpr void for_each_base(Fn&& fn);                         // fn(base)
 template <typename E, typename Fn>
 constexpr void for_each_enumerator(Fn&& fn);                   // fn(enumerator)
-template <std::meta::info F, typename Fn>
-constexpr void for_each_parameter(function<F>, Fn&& fn);       // fn(parameter)
+template <typename T, access_context Access = default_access, typename Fn>
+constexpr void for_each_constructor(Fn&& fn);                  // fn(constructor)
+template <has_parameters D, typename Fn>
+constexpr void for_each_parameter(D proxy, Fn&& fn);           // fn(parameter)
 
 template <typename T, typename Fn>
 constexpr void for_each_annotation(Fn&& fn);                   // fn(annotation), on the type T
@@ -249,8 +267,8 @@ constexpr void for_each_annotation(D proxy, Fn&& fn);          // fn(const A&), 
 
 ### Annotation members shared by all proxies
 
-`field`, `static_field`, `function`, `parameter`, `base`, `enumerator` and
-`member` have these members. The [free functions](#annotation-functions) do
+`field`, `static_field`, `function`, `constructor`, `parameter`, `base`,
+`enumerator` and `member` have these members. The [free functions](#annotation-functions) do
 the same and are easier to call in generic code.
 
 ```cpp
@@ -392,9 +410,57 @@ Do not write `reflect::function<^^T::f>` yourself; obtain function proxies
 from the library. See
 [Known compiler problems](troubleshooting.md#known-compiler-problems).
 
+### constructor
+
+A constructor of a class.
+
+```cpp
+template <std::meta::info Info>
+struct constructor {
+    using declaring_type = /* the class */;
+    template <std::size_t I>
+    using parameter_type = /* declared type of parameter I */;
+
+    static consteval std::size_t arity();
+
+    static consteval bool is_default();
+    static consteval bool is_copy();
+    static consteval bool is_move();
+    static consteval bool is_explicit();
+    static consteval bool is_noexcept();
+    static consteval bool is_public();
+    static consteval bool is_protected();
+    static consteval bool is_private();
+
+    template <typename... Args>
+    static constexpr declaring_type invoke(Args&&... args);
+};
+```
+
+| Member | Notes |
+| --- | --- |
+| `declaring_type` | The class the constructor belongs to, which is the type `invoke` returns. |
+| `arity()` | Number of parameters. |
+| `is_default()` | Whether the constructor can be called without arguments. True for `User(int id = 0)` as well. |
+| `is_copy()`, `is_move()` | Only ever true for a proxy obtained through `member::as_constructor()`; `get_constructors_of` leaves those two out. |
+| `invoke(args...)` | Creates an object with exactly this constructor. The arguments are converted to the parameter types as in a normal call; overload resolution between constructors does not take place. Requires as many arguments as the constructor has parameters, so default arguments are not applied. |
+
+`invoke` works for **public constructors only**. A private field can be read
+through reflection, because a field can be spliced without an access check;
+a constructor cannot be spliced at all, so the call is an ordinary one and
+subject to access control. Calling `invoke` on a constructor that is not
+public is a compile error.
+
+The object is created in place: a class that can be neither copied nor moved
+works. An argument for a parameter taken by value is moved once more than in
+a direct call.
+
+A constructor has no name and no return type. Its parameters are available
+through `get_parameter_of`, `for_each_parameter` and `get_parameter_names_of`.
+
 ### parameter
 
-One parameter of a member function.
+One parameter of a member function or of a constructor.
 
 ```cpp
 template <std::meta::info Function, std::size_t Index>
@@ -496,6 +562,7 @@ struct member {
     static constexpr auto as_field();          // field
     static constexpr auto as_static_field();   // static_field
     static constexpr auto as_function();       // function
+    static constexpr auto as_constructor();    // constructor
 };
 ```
 
@@ -510,6 +577,7 @@ struct member {
 | `as_field()` | Only for `member_kind::field`. |
 | `as_static_field()` | Only for `member_kind::static_field`. |
 | `as_function()` | Only if `is_function()`. |
+| `as_constructor()` | Only for `member_kind::constructor`. |
 
 | `member_kind` | Member |
 | --- | --- |
@@ -689,6 +757,39 @@ of `get_all_fields_of<T>()`.
 For `for_each_field(a, b, fn)` and `for_each_field_while` see
 [Iteration](#iteration).
 
+## Constructing objects
+
+```cpp
+template <std::meta::info C, typename Fn>
+constexpr auto construct(constructor<C> constructor, Fn&& fn);   // the class of the constructor
+
+template <typename T, typename Fn>
+constexpr T construct(Fn&& fn);
+```
+
+**`construct(constructor, fn)`** calls `fn(parameter)` for every parameter
+of the constructor, from left to right, and then calls the constructor with
+the results. Each result has to be convertible to the type of its parameter.
+
+**`construct<T>(fn)`** does the same with the one public constructor of `T`
+that takes arguments. It is a compile error if `T` has no such constructor,
+or more than one; choose one with `get_constructor_of` in that case.
+
+| | `make<T>(fn)` | `construct<T>(fn)` |
+| --- | --- | --- |
+| Asks the callback for | every field | every constructor parameter |
+| The class needs | to be an aggregate, or a default constructor and assignable fields | a public constructor |
+| Private members | are set directly | are set by the constructor |
+| Invariants checked by the constructor | bypassed | kept |
+
+The order of the calls to `fn` is guaranteed. Every argument is stored
+before the constructor runs, which costs one move per argument compared to a
+direct call.
+
+A default argument cannot be used: reflection tells whether a parameter has
+one (`parameter.has_default_argument()`), not what its value is. To leave a
+trailing argument out, pick a constructor with fewer parameters.
+
 ## Calling functions by name
 
 ```cpp
@@ -846,6 +947,7 @@ template <typename T, access_context Access = default_access> using all_fields_o
 template <typename T, access_context Access = default_access> using static_fields_of_t = /* list<static_field, ...> */;
 template <typename T, access_context Access = default_access> using functions_of_t     = /* list<function, ...> */;
 template <typename T, fixed_string Name>                      using functions_named_t  = /* list<function, ...> */;
+template <typename T, access_context Access = default_access> using constructors_of_t  = /* list<constructor, ...> */;
 template <typename T, access_context Access = default_access> using members_of_t       = /* list<member, ...> */;
 template <typename T, access_context Access = default_access> using bases_of_t         = /* list<base, ...> */;
 template <typename E>                                         using enumerators_of_t   = /* list<enumerator, ...> */;
@@ -872,6 +974,9 @@ The library reports misuse while compiling. The message appears after
 | `reflect::get_function_of: no overload with that signature` | The signature matches none of the overloads. |
 | `reflect::get_function_of: the third argument has to be a function type such as int(int) const` | The signature argument is not a function type. |
 | `reflect::get_function_of: the pointer does not name a member function declared by that class` | `get_function_of<Pointer>()` with a pointer that matches no function. |
+| `reflect::get_constructor_of: no constructor with these parameter types` | `get_constructor_of<T, Parameters...>()`, and `T` has no constructor with exactly these parameters. |
+| `reflect::construct: the class needs exactly one public constructor that takes arguments; ...` | `construct<T>(fn)` on a class with no such constructor, or with several. Pass a constructor from `get_constructor_of` as the first argument. |
+| `reflect::constructor::invoke: only a public constructor can be called` | `invoke` or `construct` with a private or protected constructor. |
 | `reflect::get_annotation: expected exactly one annotation of this type` | `get_annotation` with no annotation of that type, or several. |
 | `reflect::find_annotation: more than one annotation of this type` | `find_annotation` or `get_annotation_or` with several. |
 | `reflect::invoke: no member function with that name` | `invoke<"name">` on a class without such a function. |

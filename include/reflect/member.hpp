@@ -3,6 +3,7 @@
 #include "access.hpp"
 #include "annotation.hpp"
 #include "config.hpp"
+#include "constructor.hpp"
 #include "detail/meta.hpp"
 #include "field.hpp"
 #include "function.hpp"
@@ -98,6 +99,13 @@ struct member : annotated<Info> {
         requires(std::meta::is_function(Info))
     {
         return function<Info>{};
+    }
+
+    /// The same member as a constructor proxy. Only for constructors.
+    static constexpr auto as_constructor()
+        requires(std::meta::is_constructor(Info))
+    {
+        return constructor<Info>{};
     }
 };
 

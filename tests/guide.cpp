@@ -92,6 +92,18 @@ struct Point {
     int y = 0;
 };
 
+class Connection {
+public:
+    Connection(std::string host, int port) : host_(std::move(host)), port_(port) {}
+
+    const std::string& host() const { return host_; }
+    int port() const { return port_; }
+
+private:
+    std::string host_;
+    int port_;
+};
+
 // --- First program -------------------------------------------------------------
 
 template <typename T>
@@ -488,6 +500,32 @@ void build_an_object() {
     std::cout << user.id << ' ' << user.name << ' ' << user.age << '\n';
 }
 
+void construct_an_object() {
+    std::map<std::string, std::string> settings{{"host", "example.org"}, {"port", "443"}};
+
+    Connection connection = reflect::construct<Connection>(
+        [&](auto parameter) -> typename decltype(parameter)::type {
+            const std::string& text = settings.at(std::string(parameter.name()));
+            if constexpr (std::is_same_v<typename decltype(parameter)::type, int>)
+                return std::stoi(text);
+            else
+                return text;
+        });
+
+    std::cout << connection.host() << ':' << connection.port() << '\n';
+}
+
+void pick_a_constructor() {
+    auto constructor = reflect::get_constructor_of<Connection, std::string, int>();
+
+    Connection local = constructor.invoke("localhost", 8080);
+    std::cout << local.host() << ':' << local.port() << '\n';
+
+    reflect::for_each_parameter(constructor, [](auto parameter) {
+        std::cout << parameter.name() << '\n';
+    });
+}
+
 void stop_early() {
     User user{1, "", 36};
 
@@ -569,6 +607,8 @@ int main() {
     SECTION(two_objects);
     SECTION(field_by_run_time_name);
     SECTION(build_an_object);
+    SECTION(construct_an_object);
+    SECTION(pick_a_constructor);
     SECTION(stop_early);
     SECTION(field_table);
     SECTION(raw_members);

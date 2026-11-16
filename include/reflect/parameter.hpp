@@ -83,25 +83,30 @@ constexpr std::array<std::string_view, sizeof...(I)> parameter_names(
 
 }  // namespace detail
 
-/// Parameter I of a function: get_parameter_of<0>(function).
-template <std::size_t I, std::meta::info Function>
-constexpr parameter<Function, I> get_parameter_of(function<Function>) {
+/// A proxy for something that has parameters: a function or a constructor.
+template <typename D>
+concept has_parameters = descriptor<D> && std::meta::is_function(D::native());
+
+/// Parameter I of a function or constructor: get_parameter_of<0>(function).
+template <std::size_t I, has_parameters D>
+constexpr parameter<D::native(), I> get_parameter_of(D) {
     return {};
 }
 
-/// Calls fn(parameter) for every parameter of a function, left to right.
-template <std::meta::info Function, typename Fn>
-constexpr void for_each_parameter(function<Function>, Fn&& fn) {
-    detail::for_each_parameter<Function>(
-        fn, std::make_index_sequence<function<Function>::arity()>{});
+/// Calls fn(parameter) for every parameter of a function or constructor,
+/// left to right.
+template <has_parameters D, typename Fn>
+constexpr void for_each_parameter(D, Fn&& fn) {
+    detail::for_each_parameter<D::native()>(
+        fn, std::make_index_sequence<std::meta::parameters_of(D::native()).size()>{});
 }
 
-/// The parameter names of a function as a plain array. An unnamed parameter
-/// gives an empty string.
-template <std::meta::info Function>
-constexpr auto get_parameter_names_of(function<Function>) {
-    return detail::parameter_names<Function>(
-        std::make_index_sequence<function<Function>::arity()>{});
+/// The parameter names of a function or constructor as a plain array. An
+/// unnamed parameter gives an empty string.
+template <has_parameters D>
+constexpr auto get_parameter_names_of(D) {
+    return detail::parameter_names<D::native()>(
+        std::make_index_sequence<std::meta::parameters_of(D::native()).size()>{});
 }
 
 }  // namespace reflect

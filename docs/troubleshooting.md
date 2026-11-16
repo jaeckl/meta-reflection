@@ -10,6 +10,7 @@ error texts are the ones GCC 16.2 prints.
 - [Errors with annotations](#errors-with-annotations)
 - [Errors with lists and loops](#errors-with-lists-and-loops)
 - [Errors when calling functions](#errors-when-calling-functions)
+- [Errors when building objects](#errors-when-building-objects)
 - [Known compiler problems](#known-compiler-problems)
 - [Questions](#questions)
 
@@ -307,6 +308,41 @@ reflect::get_function_of<User, "over", int(double)>().invoke(user, 5L);
 
 The class declares no function with that name. Check the spelling, and
 whether the function is inherited from a base class.
+
+## Errors when building objects
+
+### `no matching function for call to 'T::T(<brace-enclosed initializer list>)'`
+
+`reflect::make<T>(fn)` on a class that is not an aggregate and has no
+default constructor. `make` has no way to create the object before it fills
+the fields. Use `reflect::construct<T>(fn)`, which goes through a
+constructor instead.
+
+### `reflect::construct: the class needs exactly one public constructor that takes arguments`
+
+`reflect::construct<T>(fn)` picks the constructor for you, which only works
+if there is exactly one candidate. With several, say which one:
+
+```cpp
+reflect::construct(reflect::get_constructor_of<User, int, std::string>(), fn);
+```
+
+A plain struct without constructors has no candidate at all. Use
+`reflect::make<T>(fn)` for it.
+
+### `reflect::get_constructor_of: no constructor with these parameter types`
+
+The types have to match the declaration exactly, except for a top-level
+`const`. A constructor `User(const std::string& name)` is found with
+`get_constructor_of<User, const std::string&>()`, not with
+`get_constructor_of<User, std::string>()`.
+
+### `reflect::constructor::invoke: only a public constructor can be called`
+
+The constructor is private or protected. Reflection can read and write
+private fields, but it cannot call a private constructor: the language
+offers no way around the access check there. Give the class a public
+constructor or a public factory function.
 
 ## Known compiler problems
 
