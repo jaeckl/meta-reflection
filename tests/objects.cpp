@@ -79,7 +79,11 @@ int main() {
     Person b{"Ada", 37, 0.5};
     CHECK(reflect::tie(a) < reflect::tie(b));
     CHECK(reflect::tie(a) != reflect::tie(b));
-    CHECK(std::tuple_size_v<decltype(reflect::tie<Person, reflect::public_access>(a))> == 3);
+
+    // With an access policy only the visible fields take part.
+    Account hidden;
+    CHECK(std::tuple_size_v<decltype(reflect::tie(hidden))> == 2);
+    CHECK(std::tuple_size_v<decltype(reflect::tie<reflect::public_access>(hidden))> == 0);
 
     // Bit-fields are copied.
     Packed packed;

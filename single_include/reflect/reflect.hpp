@@ -1349,7 +1349,7 @@ constexpr T make(Fn& fn, list<field, Infos...>) {
 ///     reflect::tie(a) <  reflect::tie(b)     // lexicographic ordering
 ///
 /// Bit-fields are copied into the tuple, since no reference can bind to one.
-template <typename Object, access_context Access = default_access>
+template <access_context Access = default_access, typename Object>
     requires std::is_class_v<Object>
 constexpr auto tie(Object& object) {
     return detail::tie(object,
