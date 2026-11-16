@@ -9,3 +9,4 @@ endfunction()
 
 reflect_add_test(annotations)
 reflect_add_test(fields)
+reflect_add_test(functions)
