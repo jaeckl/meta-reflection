@@ -8,3 +8,4 @@ function(reflect_add_test name)
 endfunction()
 
 reflect_add_test(annotations)
+reflect_add_test(fields)

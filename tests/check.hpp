@@ -17,11 +17,12 @@ inline int result() {
 
 }  // namespace test
 
-#define CHECK(expression)                                                  \
+// Variadic so that template arguments with commas need no extra parentheses.
+#define CHECK(...)                                                         \
     do {                                                                   \
-        if (!(expression)) {                                               \
+        if (!(__VA_ARGS__)) {                                              \
             ++test::failures;                                              \
             std::printf("%s:%d: CHECK failed: %s\n", __FILE__, __LINE__,   \
-                        #expression);                                      \
+                        #__VA_ARGS__);                                     \
         }                                                                  \
     } while (false)

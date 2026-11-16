@@ -7,5 +7,6 @@
 
 #include "access.hpp"
 #include "annotation.hpp"
+#include "field.hpp"
 #include "list.hpp"
 #include "string.hpp"
