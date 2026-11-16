@@ -464,14 +464,18 @@ C++ does not allow a reference to a bit-field. `set()` still works.
 
 **Can it reflect on free functions or namespaces?**
 
-Not in this version. The library covers classes and enums. For everything
+It can list the classes of a namespace, with
+[`for_each_class_in`](reference.md#namespaces). Free functions and variables
+are not covered. For everything
 else, `std::meta` is available directly, and
 [How it works](concepts.md#how-this-maps-to-stdmeta) shows how the two fit
 together.
 
 **Can it add members to a class or generate new types?**
 
-No. The library reads; it does not generate.
+Not at compile time: C++26 cannot add members to a class or write files.
+[Generating code](code-generation.md) shows what works instead: a generic
+builder, and a generator program that runs during the build.
 
 **My error is not on this page.**
 

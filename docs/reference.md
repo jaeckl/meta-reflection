@@ -26,9 +26,11 @@ see the [Getting Started Guide](getting-started.md).
 - [Whole objects](#whole-objects)
 - [Walking nested objects](#walking-nested-objects)
 - [Constructing objects](#constructing-objects)
+- [Builder](#builder)
 - [Calling functions by name](#calling-functions-by-name)
 - [Enums](#enums)
 - [Types](#types)
+- [Namespaces](#namespaces)
 - [Field table](#field-table)
 - [Strings](#strings)
 - [List type aliases](#list-type-aliases)
@@ -75,18 +77,20 @@ can be included on their own.
 | `reflect/access.hpp` | access policies, `descriptor` |
 | `reflect/annotation.hpp` | `annotation`, annotation functions, `annotated_with` |
 | `reflect/base.hpp` | `base`, `get_bases_of`, `for_each_base` |
+| `reflect/builder.hpp` | `builder`, `required` (experimental) |
 | `reflect/constructor.hpp` | `constructor`, `get_constructors_of`, `get_constructor_of`, `for_each_constructor`, `construct` |
 | `reflect/enumerator.hpp` | `enumerator`, `enum_name`, `enum_cast`, `enum_values`, `enum_names`, `enum_count` |
 | `reflect/field.hpp` | `field`, `get_fields_of`, `get_all_fields_of`, `get_field_of`, `has_field`, `field_index_of`, `field_types_t`, `for_each_field` |
 | `reflect/function.hpp` | `function`, `get_functions_of`, `get_function_of`, `has_function`, `for_each_function`, `invoke` |
 | `reflect/list.hpp` | `list` |
 | `reflect/member.hpp` | `member`, `member_kind`, `get_members_of`, `for_each_member` |
+| `reflect/namespace.hpp` | `for_each_class_in` (experimental) |
 | `reflect/object.hpp` | `tie`, `make`, `visit_field`, `for_each_field_while`, two-object `for_each_field` |
 | `reflect/parameter.hpp` | `parameter`, `has_parameters`, `get_parameter_of`, `get_parameter_names_of`, `for_each_parameter` |
 | `reflect/static_field.hpp` | `static_field`, `get_static_fields_of`, `for_each_static_field` |
 | `reflect/string.hpp` | `static_string`, `fixed_string` |
 | `reflect/table.hpp` | `field_info`, `field_table` |
-| `reflect/type.hpp` | `name_of` |
+| `reflect/type.hpp` | `name_of`, `qualified_name_of` |
 | `reflect/walk.hpp` | `walk`, `field_path`, `overloaded` |
 | `reflect/config.hpp` | version macros, compiler check |
 
@@ -895,6 +899,46 @@ A default argument cannot be used: reflection tells whether a parameter has
 one (`parameter.has_default_argument()`), not what its value is. To leave a
 trailing argument out, pick a constructor with fewer parameters.
 
+## Builder
+
+Experimental. See [Generating code](code-generation.md#way-1-a-builder-without-generated-code)
+for an introduction.
+
+```cpp
+struct required_t {};
+inline constexpr required_t required{};          // [[=reflect::required]]
+
+template <typename T, std::meta::info... Set>
+class builder {
+public:
+    constexpr builder();
+
+    template <fixed_string Name, typename Value>
+    [[nodiscard]] constexpr auto set(this builder self, Value&& value);   // builder<T, Set..., field>
+
+    [[nodiscard]] constexpr T build(this builder self);
+};
+```
+
+`reflect::builder<T>()` starts with a default-constructed `T`.
+
+**`set<"name">(value)`** assigns `value` to the field `name` and returns a
+builder whose type has that field added to `Set`. The field may be declared
+by `T` or by one of its base classes, and may be private. Compile error if
+there is no such field, if it was set before, or if the value cannot be
+assigned to it.
+
+**`build()`** returns the object. Compile error if a field of `T` or of a
+base class is annotated with `reflect::required` and is not in `Set`.
+
+- Both functions take the builder by value: called on a temporary they
+  move the object along, called on a variable they copy it and leave the
+  variable usable.
+- The result of `set` has to be used; the builder it was called on is not
+  changed.
+- `T` needs a default constructor, and the fields have to be assignable.
+- A builder works at compile time if `T` does.
+
 ## Calling functions by name
 
 ```cpp
@@ -947,6 +991,9 @@ each enumerator in turn.
 template <typename T>
 constexpr std::string_view name_of();
 
+template <typename T>
+constexpr std::string_view qualified_name_of();
+
 template <typename T, access_context Access = default_access>
 using field_types_t = /* std::tuple<field types...> */;
 ```
@@ -956,9 +1003,48 @@ that has no simple name, such as `int`, a pointer or `Box<int>`, gives the
 text the compiler prints for it. That text is not the same on every
 compiler, so do not store or compare it.
 
+`qualified_name_of<T>()` adds the namespaces and classes around the type:
+`"shop::User"`, or `"shop::Order::Line"` for a nested class. An alias gives
+the name of the type it stands for. This is the name to print in generated
+code. The enclosing scopes are left out if the type cannot be named from
+outside one of them: a class in an unnamed namespace or inside a function. A type without a
+simple name gives the compiler's text, as with `name_of`.
+
 `field_types_t<T>` is a tuple type with the declared types of the fields of
 `T`: `std::tuple<int, std::string>` for a struct with an `int` and a
 `std::string` member.
+
+## Namespaces
+
+Experimental.
+
+```cpp
+template <std::meta::info Namespace, typename Fn>
+constexpr void for_each_class_in(Fn&& fn);          // fn(std::type_identity<T>{})
+```
+
+Calls `fn` once for every class declared directly in a namespace, in
+declaration order. The namespace is passed as a reflection: `^^shop`, or
+`^^::` for the global namespace.
+
+```cpp
+reflect::for_each_class_in<^^shop>([]<typename T>(std::type_identity<T>) {
+    if constexpr (reflect::has_annotation<Entity, T>())
+        std::cout << reflect::qualified_name_of<T>() << '\n';
+});
+```
+
+- Listed: complete classes and structs.
+- Not listed: class templates, classes that are only declared, unions,
+  enums, aliases, and the classes of nested namespaces.
+- The list is what the compiler has seen of the namespace at the point of
+  the call. Classes declared later in the file are missing, so call it
+  after the headers are included, and do not call it for the same namespace
+  from a header that different source files include at different points.
+
+This is the one place where the library reflects on something other than a
+class or an enum. Free functions and variables of a namespace are not
+covered.
 
 ## Field table
 
@@ -1087,6 +1173,11 @@ The library reports misuse while compiling. The message appears after
 | `reflect::find_annotation: more than one annotation of this type` | `find_annotation` or `get_annotation_or` with several. |
 | `reflect::get_inherited_annotation: neither the class nor a base class has an annotation of this type` | `get_inherited_annotation` found the annotation nowhere. |
 | `reflect::get_inherited_annotation: more than one annotation of this type on the nearest class that has one` | The class that answers has the annotation several times. `find_inherited_annotation` reports the same under its own name. |
+| `reflect::builder::set: no field with that name` | `set<"name">` on a builder, and neither the class nor a base class has that field. |
+| `reflect::builder::set: this field was already set` | Two `set` calls for one field in the same chain. |
+| `reflect::builder::set: the value cannot be assigned to this field` | The argument of `set` does not convert to the type of the field. |
+| `reflect::builder::build: the required field '...' was not set` | `build()` before every `[[=reflect::required]]` field was set. The message names the field. |
+| `reflect::builder: the class needs a default constructor` | `builder<T>` for a `T` that cannot be default constructed. |
 | `reflect::invoke: no member function with that name` | `invoke<"name">` on a class without such a function. |
 
 [Troubleshooting](troubleshooting.md) lists these and the errors that come

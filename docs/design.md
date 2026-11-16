@@ -343,8 +343,29 @@ left out to keep the first version small.
   once", declared on the annotation type. The library can check them when a
   type is inspected; C++26 cannot check them at the annotated declaration,
   so a type nobody reflects on is never checked.
-- **Namespaces, free functions and variables** as reflection targets.
+- **Free functions and variables of a namespace** as reflection targets.
   `function::invoke` assumes a member function and would need a second form.
+  The classes of a namespace are available, as an experiment, through
+  `for_each_class_in`.
+
+Experimental, and not covered by the decisions above: `builder`,
+`for_each_class_in`, `qualified_name_of` and the CMake function
+`reflect_generate`. See [Generating code](code-generation.md).
+
+- `builder` records the fields that were set in its type,
+  `builder<T, ^^T::a, ^^T::b>`. That is what makes "a required field is
+  missing" and "set twice" compile errors, and it is also why a builder
+  cannot be filled in a loop. `set` and `build` take the builder by value
+  through an explicit object parameter, so one definition moves from a
+  temporary and copies from a variable.
+- `for_each_class_in` hands each class to the callback as
+  `std::type_identity<T>`. The library has no proxy for a type; whether it
+  should get one is open.
+- The result of `std::meta::members_of` for a namespace depends on where it
+  is evaluated. A call to `for_each_class_in` inside an inline function of a
+  header can therefore see different classes in different source files,
+  which breaks the one-definition rule without a diagnostic. This is the
+  main reason the feature is not final.
 
 Not possible with C++26:
 
