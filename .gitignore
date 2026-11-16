@@ -1,0 +1,12 @@
+build/
+out/
+cmake-build-*/
+.cache/
+CMakeUserPresets.json
+compile_commands.json
+
+*.exe
+*.obj
+*.o
+*.ilk
+*.pdb
