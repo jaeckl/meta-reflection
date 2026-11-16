@@ -13,5 +13,6 @@
 #include "function.hpp"
 #include "list.hpp"
 #include "member.hpp"
+#include "object.hpp"
 #include "string.hpp"
 #include "type.hpp"
