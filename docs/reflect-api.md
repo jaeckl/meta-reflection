@@ -1,12 +1,12 @@
-# `meta` — a high-level API over C++26 `std::meta`
+# `reflect` — a high-level API over C++26 `std::meta`
 
 Specification and API reference, version 0.1 (draft), 2026-11-16.
 
-This document is the implementation reference for the `meta` library. Every
+This document is the implementation reference for the `reflect` library. Every
 declaration in section 6 was compiled and exercised as a prototype on
 GCC 16.2 with `-std=c++26 -freflection` before it was written down. Section 9
 lists exactly what was and was not checked. Section 10 lists the decisions
-that are still open.
+that were made and the ones still open.
 
 ## 1. Purpose
 
@@ -15,15 +15,15 @@ C++26 reflection is a small set of primitives built around one opaque handle,
 `access_context`, loop with `template for`, call free functions such as
 `identifier_of`, and splice with `[: :]`.
 
-`meta` is a thin, header-only layer that gives the common cases a direct
+`reflect` is a thin, header-only layer that gives the common cases a direct
 spelling:
 
 ```cpp
-meta::get_fields_of<User>();
-meta::get_members_of<User>();
-meta::get_bases_of<User>();
-meta::get_annotations_of<User>();
-meta::has_annotation<Serializable, User>();
+reflect::get_fields_of<User>();
+reflect::get_members_of<User>();
+reflect::get_bases_of<User>();
+reflect::get_annotations_of<User>();
+reflect::has_annotation<Serializable, User>();
 ```
 
 Goals:
@@ -48,8 +48,8 @@ Non-goals:
 |---|---|
 | Language | C++26 with reflection (P2996), annotations (P3394), expansion statements (P1306) |
 | Reference compiler | GCC 16.2, flags `-std=c++26 -freflection` |
-| Form | Header-only, single header `include/meta/meta.hpp` |
-| Namespace | `meta` (see open decision D2) |
+| Form | Header-only, single header `include/reflect/reflect.hpp` |
+| Namespace | `reflect` (decision D2) |
 | Dependencies | Standard library only: `<meta>`, `<array>`, `<optional>`, `<string_view>`, `<type_traits>`, `<utility>`, `<vector>`, `<algorithm>` |
 
 GCC 15 and earlier cannot build this library. The repository's current local
@@ -60,12 +60,12 @@ toolchain is MinGW GCC 15.2, so implementation needs a GCC 16 toolchain and
 
 Five rules shape the whole API.
 
-**R1. A proxy carries its identity in its type.** `meta::field<Info>` is an
+**R1. A proxy carries its identity in its type.** `reflect::field<Info>` is an
 empty class template whose template argument is the `std::meta::info` of one
 member. Two fields have two different proxy types. All proxy members are
 `static`. This is what makes the API usable from a normal generic lambda: the
 parameter `field` is not a constant, but its type is, so `field.name()` and
-`meta::has_annotation<Skip>(field)` are constant expressions and work inside
+`reflect::has_annotation<Skip>(field)` are constant expressions and work inside
 `if constexpr`.
 
 **R2. Proxies are ordinary empty objects.** They are default-constructible,
@@ -73,18 +73,18 @@ copyable, and may exist at run time. Only `native()` returns the consteval-only
 `std::meta::info`.
 
 **R3. A discovery function returns a list type, not a container.**
-`meta::get_fields_of<User>()` returns an object of type
-`meta::list<meta::field, ^^User::id, ^^User::name, ...>`. The list is
+`reflect::get_fields_of<User>()` returns an object of type
+`reflect::list<reflect::field, ^^User::id, ^^User::name, ...>`. The list is
 heterogeneous, because each element has its own proxy type. It is consumed
 with `for_each`, with `template for`, or by index.
 
 **R4. Types are named with template arguments; members are reached through
 proxies.** C++ accepts `User` as a template argument but not `User::id`. Types
-therefore use `meta::f<User>()`. A member is reached by discovery
-(`for_each_field`), by name (`meta::get_field_of<User, "id">()`), or directly
-(`meta::field<^^User::id>`). Every operation that takes a type also takes a
-proxy as a function argument: `meta::has_annotation<Skip, User>()` and
-`meta::has_annotation<Skip>(field)`.
+therefore use `reflect::f<User>()`. A member is reached by discovery
+(`for_each_field`), by name (`reflect::get_field_of<User, "id">()`), or directly
+(`reflect::field<^^User::id>`). Every operation that takes a type also takes a
+proxy as a function argument: `reflect::has_annotation<Skip, User>()` and
+`reflect::has_annotation<Skip>(field)`.
 
 **R5. Annotations are 0..n.** The language allows the same annotation type
 several times on one declaration. The API has separate queries for "is there
@@ -93,10 +93,10 @@ one", "exactly one", "at most one", and "all of them".
 ## 4. Tour
 
 This program was compiled and run with the prototype header in place of the
-`#include <meta/meta.hpp>` line. Output follows it.
+`#include <reflect/reflect.hpp>` line. Output follows it.
 
 ```cpp
-#include <meta/meta.hpp>
+#include <reflect/reflect.hpp>
 
 #include <iostream>
 #include <string>
@@ -107,7 +107,7 @@ struct Column {
     int id;
 };
 struct Rename {
-    meta::static_string value;
+    reflect::static_string value;
 };
 
 struct Entity {
@@ -128,21 +128,21 @@ private:
 
 template <typename T>
 void print(const T& object) {
-    static_assert(meta::has_annotation<Serializable, T>(),
+    static_assert(reflect::has_annotation<Serializable, T>(),
                   "print: type is not marked Serializable");
 
-    std::cout << meta::name_of<T>() << " {\n";
-    meta::for_each_field(object, [](auto field, const auto& value) {
-        if constexpr (meta::has_annotation<Skip>(field))
+    std::cout << reflect::name_of<T>() << " {\n";
+    reflect::for_each_field(object, [](auto field, const auto& value) {
+        if constexpr (reflect::has_annotation<Skip>(field))
             return;
 
         std::string_view label = field.name();
-        if constexpr (constexpr auto renamed = meta::find_annotation<Rename>(field))
+        if constexpr (constexpr auto renamed = reflect::find_annotation<Rename>(field))
             label = renamed->value;
 
         std::cout << "  " << label << " = " << value;
-        if constexpr (meta::has_annotation<Column>(field))
-            std::cout << "  (column " << meta::get_annotation<Column>(field).id << ")";
+        if constexpr (reflect::has_annotation<Column>(field))
+            std::cout << "  (column " << reflect::get_annotation<Column>(field).id << ")";
         std::cout << '\n';
     });
     std::cout << "}\n";
@@ -173,7 +173,7 @@ Rules for callbacks:
   cannot work, because every element has a different type.
 - `return` inside the callback moves on to the next element. There is no
   early exit from the whole loop.
-- Prefer the free functions (`meta::has_annotation<Skip>(field)`) inside
+- Prefer the free functions (`reflect::has_annotation<Skip>(field)`) inside
   generic code. The member forms need the `template` keyword on a dependent
   proxy: `field.template has_annotation<Skip>()`.
 - The loop functions are `constexpr` and usable in constant evaluation.
@@ -181,22 +181,22 @@ Rules for callbacks:
 ## 5. Access policy
 
 Discovery of fields, functions, members, and bases takes an access policy as
-an optional non-type template argument of type `meta::access_context`
+an optional non-type template argument of type `reflect::access_context`
 (an alias of `std::meta::access_context`).
 
 | Policy | Meaning | Underlying primitive |
 |---|---|---|
-| `meta::unchecked_access` | Every declared member, including private and protected | `access_context::unchecked()` |
-| `meta::public_access` | What code at global scope may access | `access_context::unprivileged()` |
-| `meta::current_access()` | What the calling code may access | `access_context::current()` evaluated at the call site |
-| `meta::default_access` | Used when none is given. Equal to `unchecked_access` (open decision D1) | |
+| `reflect::unchecked_access` | Every declared member, including private and protected | `access_context::unchecked()` |
+| `reflect::public_access` | What code at global scope may access | `access_context::unprivileged()` |
+| `reflect::current_access()` | What the calling code may access | `access_context::current()` evaluated at the call site |
+| `reflect::default_access` | Used when none is given. Equal to `unchecked_access` (decision D1) | |
 
 ```cpp
-meta::get_fields_of<User>();                          // 4: id, name, password, revision
-meta::get_fields_of<User, meta::public_access>();     // 3
-meta::get_fields_of<User, meta::current_access()>();  // 3 at namespace scope, 4 inside a User member
-meta::for_each_field<User, meta::public_access>(fn);
-meta::for_each_field<meta::public_access>(user, fn);
+reflect::get_fields_of<User>();                          // 4: id, name, password, revision
+reflect::get_fields_of<User, reflect::public_access>();     // 3
+reflect::get_fields_of<User, reflect::current_access()>();  // 3 at namespace scope, 4 inside a User member
+reflect::for_each_field<User, reflect::public_access>(fn);
+reflect::for_each_field<reflect::public_access>(user, fn);
 ```
 
 Two facts the implementer and the user must both know:
@@ -205,15 +205,15 @@ Two facts the implementer and the user must both know:
   `pointer` use splices, and a splice performs no access check. Any proxy that
   was discovered, or constructed directly, can read and write its member. The
   prototype read a private field of a private base class this way.
-- `meta::get_field_of<T, "name">()` and a directly written
-  `meta::field<^^T::m>` take no policy and reach any member.
+- `reflect::get_field_of<T, "name">()` and a directly written
+  `reflect::field<^^T::m>` take no policy and reach any member.
 
 Annotation queries take no policy. Annotations are not subject to access
 control.
 
 ## 6. API reference
 
-All names are in namespace `meta`. "Proxy" means one of `field`, `function`,
+All names are in namespace `reflect`. "Proxy" means one of `field`, `function`,
 `base`, `enumerator`, `member`, `annotation`.
 
 ### 6.1 Common vocabulary
@@ -240,7 +240,7 @@ concept descriptor = requires {
 ### 6.2 Annotation members shared by proxies
 
 `field`, `function`, `base`, `enumerator`, and `member` derive publicly from
-`meta::annotated<Info>` and inherit these static members. `A` is the
+`reflect::annotated<Info>` and inherit these static members. `A` is the
 annotation type.
 
 ```cpp
@@ -308,7 +308,7 @@ struct list {
   `template for` work:
 
 ```cpp
-template for (auto field : meta::get_fields_of<User>().without<Skip>()) {
+template for (auto field : reflect::get_fields_of<User>().without<Skip>()) {
     std::cout << field.name() << '\n';
 }
 ```
@@ -444,7 +444,7 @@ struct base : annotated<Info> {
 `get(object)` returns a reference to the base subobject with the value
 category and constness of `object`. Annotations on a base come from the
 base-specifier: `struct User : [[=Tag{9}]] Audited`. To continue into the
-base, pass `type` back in: `meta::get_fields_of<typename decltype(base)::type>()`.
+base, pass `type` back in: `reflect::get_fields_of<typename decltype(base)::type>()`.
 
 ### 6.7 `enumerator`
 
@@ -517,7 +517,7 @@ struct annotation {
 `annotation` is the only proxy that does not derive from `annotated`.
 
 ```cpp
-meta::for_each_annotation(field, [](auto ann) {
+reflect::for_each_annotation(field, [](auto ann) {
     if constexpr (ann.template is<Column>()) {
         constexpr Column column = ann.value();
     }
@@ -618,7 +618,7 @@ template <typename A, typename T>   consteval auto             get_annotations()
 template <typename A, descriptor D> consteval auto             get_annotations(D);  // std::array<A, N>
 ```
 
-The annotation type always comes first: `meta::has_annotation<Serializable, User>()`.
+The annotation type always comes first: `reflect::has_annotation<Serializable, User>()`.
 
 ### 6.13 Type and enumeration utilities
 
@@ -667,7 +667,7 @@ struct fixed_string {
 ```
 
 - `static_string` is the type to use for text inside an annotation:
-  `struct Rename { meta::static_string value; };` then
+  `struct Rename { reflect::static_string value; };` then
   `[[=Rename{"display name"}]]`. Its constructors store the characters with
   `std::define_static_string`. No factory function is needed.
 - `fixed_string` exists to pass a string literal as a template argument. It
@@ -680,16 +680,16 @@ the prototype.
 
 | Misuse | Diagnostic |
 |---|---|
-| `get_annotation<A>` with zero or several annotations | `uncaught exception of type 'std::meta::exception'; 'what()': 'meta::get_annotation: expected exactly one annotation of this type'` |
-| `find_annotation<A>` with several annotations | same form, `'meta::find_annotation: more than one annotation of this type'` |
-| `get_field_of<T, "missing">()` | `'what()': 'meta: no field with that name'` |
+| `get_annotation<A>` with zero or several annotations | `uncaught exception of type 'std::meta::exception'; 'what()': 'reflect::get_annotation: expected exactly one annotation of this type'` |
+| `find_annotation<A>` with several annotations | same form, `'reflect::find_annotation: more than one annotation of this type'` |
+| `get_field_of<T, "missing">()` | `'what()': 'reflect::get_field_of: no field with that name'` |
 | Discovery on an incomplete type | `'what()': 'not a complete class type'` (from `std::meta`) |
-| `meta::field<^^SomeType>` (wrong entity kind) | `template constraint failure for ... struct meta::field` |
+| `reflect::field<^^SomeType>` (wrong entity kind) | `template constraint failure for ... struct reflect::field` |
 | `pointer()` on a bit-field | `invalid pointer to bit-field` |
 | `name()` or `names()` on an unnamed member | `'what()': 'reflection with has_identifier false'` (from `std::meta`) |
 
 Library-detected errors are raised by throwing `std::meta::exception` from a
-`consteval` function, with a message that starts with the `meta::` function
+`consteval` function, with a message that starts with the `reflect::` function
 name and with the offending reflection as the exception's `from` argument.
 
 ## 8. Implementation notes
@@ -728,9 +728,11 @@ implementation, not a suggestion.
    deduced return type and a `consteval` helper that indexes an
    `std::initializer_list<std::meta::info>`.
 
-4. **Qualify with `::meta` inside `namespace std`.** In the bodies of the
-   `std::tuple_size` and `std::tuple_element` specializations, plain `meta`
-   resolves to `std::meta`.
+4. **Qualify with `::reflect` inside `namespace std`.** The bodies of the
+   `std::tuple_size` and `std::tuple_element` specializations are looked up
+   in `std` first. Under the earlier namespace name `meta` this resolved to
+   `std::meta` and failed; the leading `::` keeps the header immune to any
+   future `std::reflect`.
 
 5. **Do not name a member after a `std::meta` function you still need to
    call unqualified.** `member::is_function()` hides `std::meta::is_function`
@@ -767,11 +769,11 @@ implementation, not a suggestion.
 11. **`static_cast<void>` each callback call** in the fold expression of
     `for_each`, so a user-defined `operator,` cannot interfere.
 
-12. **GCC 16.2 defect.** Using a hand-written `meta::function<^^C::f>` and a
+12. **GCC 16.2 defect.** Using a hand-written `reflect::function<^^C::f>` and a
     list-derived proxy for the same member function `f` in one translation
     unit produces two specializations (duplicate symbol at assembly, or an
     internal compiler error in `finish_member_declaration`). Either form
-    alone works, and GCC trunk accepts the mix. `meta::field<^^C::m>` is not
+    alone works, and GCC trunk accepts the mix. `reflect::field<^^C::m>` is not
     affected. Tests must not mix the two for functions while 16.2 is the
     reference compiler.
 
@@ -801,7 +803,9 @@ header that implements section 6. The header itself produced no warnings.
   and on a member function.
 - `for_each_field` inside a `constexpr` function used in a `static_assert`.
 - The error cases in section 7.
-- That `using namespace std;` makes `meta::` ambiguous (decision D2).
+- `using namespace std;` placed before and after the header. `reflect::`
+  compiles in both positions. The earlier name `meta::` did not: "reference
+  to 'meta' is ambiguous" (decision D2).
 
 Not checked:
 
@@ -814,12 +818,19 @@ Not checked:
 - Use from C++ modules.
 - A local build. Nothing was compiled on this machine, which has GCC 15.2.
 
-## 10. Open decisions
+## 10. Decisions
+
+Decided:
+
+| Id | Question | Decision | Reason |
+|---|---|---|---|
+| D1 | Default access policy | `unchecked_access`: every declared member, including private | Matches Java's `getDeclaredFields`. With a public-only default a serializer silently drops private fields |
+| D2 | Namespace name | `reflect` | The first choice, `meta`, is ambiguous with `std::meta` in any file that has `using namespace std;` and does not compile there |
+
+Still open. The draft uses the choice in the third column:
 
 | Id | Question | Current choice in this draft | Alternative |
 |---|---|---|---|
-| D1 | Default access policy | `unchecked_access`: every declared field, like Java's `getDeclaredFields` | `public_access`: respects access control, but a serializer silently drops private fields |
-| D2 | Namespace name | `meta` | Any name that is not `meta`. With `using namespace std;` in scope, `meta::` is ambiguous with `std::meta` and does not compile |
 | D3 | `get_` prefix | Kept: `get_fields_of` | `fields_of`, matching `std::meta::members_of` |
 | D4 | Inherited fields | `get_fields_of` is direct only; `get_all_fields_of` is separate | One function with an option |
 | D5 | `get_functions_of` content | Named functions only | Also operators and conversion functions |
