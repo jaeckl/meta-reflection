@@ -36,6 +36,17 @@ add_test(NAME codegen_errors
 set_tests_properties(codegen_errors PROPERTIES PASS_REGULAR_EXPRESSION
     "codegen_bad_model.hpp:10:[0-9]+: error: reflect::generate_builder: the class needs a default constructor")
 
+# The generated code has to compile without warnings and work, not only
+# look right.
+add_executable(test_codegen_use codegen_use.cpp)
+target_link_libraries(test_codegen_use PRIVATE reflect::reflect)
+target_compile_options(test_codegen_use PRIVATE -Wall -Wextra -Wpedantic)
+reflect_process(test_codegen_use
+    HEADERS codegen_model.hpp
+    PROCESSORS reflect::codegen::builder_processor
+    OUTPUT codegen_model_generated.hpp)
+add_test(NAME codegen_use COMMAND test_codegen_use)
+
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)
 reflect_add_test(readme)
