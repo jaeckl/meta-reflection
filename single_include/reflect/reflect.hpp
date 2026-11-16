@@ -1107,14 +1107,18 @@ consteval std::meta::info function_with_signature(std::meta::info type,
 template <typename Class, typename Function>
 Class class_of_member_function(Function Class::*);
 
+// Two pointers are the same pointer if they are the same template argument.
+// Comparing them with == says the same, but with -fsanitize=undefined GCC 16
+// does not accept that comparison in a constant expression.
+template <auto Pointer>
+struct pointer_tag {};
+
 template <auto Pointer, std::meta::info Info>
 consteval bool is_function_pointer_to() {
     if constexpr (std::meta::is_static_member(Info)) {
         return false;
-    } else if constexpr (!std::same_as<decltype(&[:Info:]), decltype(Pointer)>) {
-        return false;
     } else {
-        return &[:Info:] == Pointer;
+        return std::same_as<pointer_tag<&[:Info:]>, pointer_tag<Pointer>>;
     }
 }
 
