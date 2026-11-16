@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <meta>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -112,6 +113,40 @@ consteval std::meta::info field_named(std::meta::info type,
         "reflect::get_field_of: no field with that name", type);
 }
 
+template <typename Class, typename Member>
+Class class_of_member(Member Class::*);
+
+// Is Pointer the address of the member Info? Bit-fields and reference
+// members have no address, so they never match.
+template <auto Pointer, std::meta::info Info>
+consteval bool is_member_pointer_to() {
+    if constexpr (std::meta::is_bit_field(Info) ||
+                  std::is_reference_v<typename field<Info>::type>) {
+        return false;
+    } else if constexpr (!std::same_as<decltype(&[:Info:]), decltype(Pointer)>) {
+        return false;
+    } else {
+        return &[:Info:] == Pointer;
+    }
+}
+
+template <auto Pointer, std::meta::info... Infos>
+consteval std::meta::info field_at(list<field, Infos...>) {
+    std::meta::info result{};
+    bool found = ((is_member_pointer_to<Pointer, Infos>() ? (result = Infos, true)
+                                                          : false) ||
+                  ...);
+    if (!found)
+        throw std::meta::exception(
+            "reflect::get_field_of: the pointer does not name a field declared "
+            "by that class",
+            ^^void);
+    return result;
+}
+
+template <std::meta::info... Infos>
+std::tuple<typename field<Infos>::type...> field_types(list<field, Infos...>);
+
 }  // namespace detail
 
 template <typename T, access_context Access = default_access>
@@ -142,6 +177,51 @@ template <typename T, fixed_string Name>
 constexpr auto get_field_of() {
     return field<detail::field_named(^^T, Name.view())>{};
 }
+
+/// One field by pointer to member: reflect::get_field_of<&User::id>().
+///
+/// Unlike the name form this survives a rename done by a refactoring tool.
+/// It cannot reach bit-fields, reference members or private members, because
+/// none of those have a pointer you can write down.
+template <auto Pointer>
+    requires std::is_member_object_pointer_v<decltype(Pointer)>
+constexpr auto get_field_of() {
+    using Class = decltype(detail::class_of_member(Pointer));
+    return field<detail::field_at<Pointer>(fields_of_t<Class, unchecked_access>{})>{};
+}
+
+/// True if T declares a field with that name: has_field<User, "id">().
+template <typename T, fixed_string Name>
+consteval bool has_field() {
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
+        if (std::meta::has_identifier(member) &&
+            std::meta::identifier_of(member) == Name.view())
+            return true;
+    }
+    return false;
+}
+
+/// The position of a field in get_fields_of<T>(), counted from 0.
+/// A compile error if T declares no field with that name.
+template <typename T, fixed_string Name>
+consteval std::size_t field_index_of() {
+    std::size_t index = 0;
+    for (std::meta::info member :
+         std::meta::nonstatic_data_members_of(^^T, unchecked_access)) {
+        if (std::meta::has_identifier(member) &&
+            std::meta::identifier_of(member) == Name.view())
+            return index;
+        ++index;
+    }
+    throw std::meta::exception(
+        "reflect::field_index_of: no field with that name", ^^T);
+}
+
+/// The field types of T as a tuple type:
+/// field_types_t<Point> is std::tuple<int, int>.
+template <typename T, access_context Access = default_access>
+using field_types_t = decltype(detail::field_types(fields_of_t<T, Access>{}));
 
 /// Calls fn(field) for every field of T.
 template <typename T, access_context Access = default_access, typename Fn>
