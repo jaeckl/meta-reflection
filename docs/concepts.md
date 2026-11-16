@@ -74,8 +74,8 @@ This is the reason for two things you see everywhere:
 - **The type of a field is `decltype(field)::type`.** It is a member typedef
   of the proxy type.
 
-The kinds of proxy are `field`, `static_field`, `function`, `parameter`,
-`base`, `enumerator`, `annotation` and `member`.
+The kinds of proxy are `field`, `static_field`, `function`, `constructor`,
+`parameter`, `base`, `enumerator`, `annotation` and `member`.
 
 ## Idea 2: a list carries its elements in its type
 

@@ -69,19 +69,25 @@ reflect::for_each_field(user, [](auto field, const auto& value) {
 | `clazz.getDeclaredMethods()` | `reflect::get_functions_of<T>()` |
 | `method.invoke(obj, args)` | `function.invoke(obj, args...)` |
 | `method.getParameterTypes()` | `decltype(function)::parameter_type<I>` |
+| `clazz.getDeclaredConstructors()` | `reflect::get_constructors_of<T>()` |
+| `clazz.getConstructor(String.class, int.class)` | `reflect::get_constructor_of<T, std::string, int>()` |
+| `constructor.newInstance(args)` | `constructor.invoke(args...)` |
 | `clazz.getSuperclass()`, `getInterfaces()` | `reflect::get_bases_of<T>()` |
 | `clazz.getSimpleName()` | `reflect::name_of<T>()` |
 | `@interface Range { int min(); int max(); }` | `struct Range { int min; int max; };` |
 | `@Range(min = 0, max = 150) int age;` | `[[=Range{0, 150}]] int age;` |
 | `field.isAnnotationPresent(Range.class)` | `reflect::has_annotation<Range>(field)` |
 | `field.getAnnotation(Range.class)` | `reflect::get_annotation<Range>(field)` |
+| `clazz.isAnnotationPresent(A.class)` with an `@Inherited` annotation | `reflect::has_inherited_annotation<A, T>()` |
 | `color.name()` | `reflect::enum_name(color)` |
 | `Color.valueOf("Red")` | `reflect::enum_cast<Color>("Red")` (returns an optional instead of throwing) |
 | `Color.values()` | `reflect::enum_values<Color>()` |
 
 Annotations need no retention policy and no target declaration. An
 annotation is any struct, and it can be put on a type, a field, a function,
-a parameter, a base class or an enumerator.
+a parameter, a base class or an enumerator. There is no `@Inherited`
+either: the code that reads the annotation chooses between
+`has_annotation` and `has_inherited_annotation`.
 
 ## C#
 
@@ -95,6 +101,9 @@ a parameter, a base class or an enumerator.
 | `field.SetValue(obj, value)` | `field.set(obj, value)` |
 | `typeof(T).GetMethods()` | `reflect::get_functions_of<T>()` |
 | `method.Invoke(obj, args)` | `function.invoke(obj, args...)` |
+| `typeof(T).GetConstructors()` | `reflect::get_constructors_of<T, reflect::public_access>()` |
+| `typeof(T).GetConstructor(new[] { typeof(string), typeof(int) })` | `reflect::get_constructor_of<T, std::string, int>()` |
+| `constructor.Invoke(args)` | `constructor.invoke(args...)` |
 | `typeof(T).BaseType` | `reflect::get_bases_of<T>()` |
 | `typeof(T).Name`, `nameof(T)` | `reflect::name_of<T>()` |
 | `class RangeAttribute : Attribute` | `struct Range { int min; int max; };` |
@@ -102,6 +111,7 @@ a parameter, a base class or an enumerator.
 | `Attribute.IsDefined(field, typeof(RangeAttribute))` | `reflect::has_annotation<Range>(field)` |
 | `field.GetCustomAttribute<RangeAttribute>()` | `reflect::find_annotation<Range>(field)` |
 | `field.GetCustomAttributes<AliasAttribute>()` | `reflect::get_annotations<Alias>(field)` |
+| `typeof(T).GetCustomAttribute<TableAttribute>(inherit: true)` | `reflect::find_inherited_annotation<Table, T>()` |
 | `color.ToString()`, `Enum.GetName` | `reflect::enum_name(color)` |
 | `Enum.TryParse("Red", out Color c)` | `reflect::enum_cast<Color>("Red")` |
 | `Enum.GetValues<Color>()` | `reflect::enum_values<Color>()` |

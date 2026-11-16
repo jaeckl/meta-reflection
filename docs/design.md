@@ -136,14 +136,12 @@ Decided:
 | D1 | Default access policy | `unchecked_access`: every declared member, private included | See [Access](#access). Matches `getDeclaredFields` in Java |
 | D2 | Namespace name | `reflect` | `meta` clashes with `std::meta` under `using namespace std;` |
 | D3 | `get_` prefix | Kept: `get_fields_of`, for every function that retrieves something | One verb for everything that is looked up, next to `for_each_` and `has_` |
+| D4 | Inherited fields | Two functions: `get_fields_of` lists declared fields only, `get_all_fields_of` adds those of the base classes | The name at the call says which fields a loop sees. One function with an option would put that choice into a template argument next to the access policy |
+| D5 | Content of `get_functions_of` | Functions with a name only | An operator has no name to print or to look up, and `invoke<"name">` cannot reach it. Operators and conversion functions stay available through `get_members_of` and `as_function()` |
+| D6 | Where a recursive walk stops | The callback decides: a field it can be called with is a value, any other field is opened | See implementation note 18 |
+| D7 | `make` on a class with base classes | The callback is asked for the inherited fields too | An object built from input should not have half of its fields left at their defaults |
 
-Open. The library currently uses the choice in the third column, and it may
-change before 1.0:
-
-| Id | Question | Current choice | Alternative |
-| --- | --- | --- | --- |
-| D4 | Inherited fields | `get_fields_of` lists declared fields only; `get_all_fields_of` is a separate function | One function with an option |
-| D5 | Content of `get_functions_of` | Functions with a name only | Also operators and conversion functions |
+No decision is open at the moment.
 
 ## Implementation notes
 
@@ -235,7 +233,54 @@ Each of these was a compile error or a wrong result at some point.
     that the callback runs in declaration order, and it works for const and
     reference members. Parentheses would leave the order unspecified.
 
-16. **The headers include each other with relative paths**
+    A base class of an aggregate is an element of the braces, before the
+    fields. `make` builds each base by calling itself, so the expression is
+    `T{make<Base>(fn)..., fn(field)...}`. A class that is not an aggregate
+    is default constructed and then assigned field by field, over the list
+    from `get_all_fields_of`.
+
+16. **A constructor is called through a thunk.** A reflection of a
+    constructor cannot be spliced ("cannot use constructor or destructor in
+    a splice expression") and has no type, so there is no pointer to take
+    and nothing to call directly. `constructor::invoke` forwards to a
+    function whose parameters are exactly the parameter types of that
+    constructor and whose body is `return type(arguments...)`. Overload
+    resolution then has one exact match, the constructor the proxy stands
+    for.
+
+    The call in the thunk is ordinary code, and it is access checked. That
+    is why a private constructor can be listed but not called, unlike a
+    private field or function, which a splice reaches.
+
+    `get_constructors_of` leaves out copy and move constructors and deleted
+    ones. Constructor templates and constructors inherited with
+    `using Base::Base;` are not reported by `std::meta::members_of` as
+    constructors, so they are not in the list.
+
+17. **`construct` stores the arguments before the call.** The callback has
+    to run once per parameter, in declaration order. The order of evaluation
+    of function arguments is unspecified, that of a braced list is not. The
+    results go into a braced `std::tuple` and are moved from there into the
+    call.
+
+18. **`walk` asks the callback whether a field is a value.** A walk over
+    nested objects needs a rule for when to stop. A `std::string` is a class
+    with fields, and so is a `std::vector`; nobody wants those opened.
+
+    Two rules were tried first. "Descend into aggregates" opens `std::array`,
+    which is an aggregate, and reports its internal member. "Descend into types
+    marked with an annotation" is exact, but cannot be applied to types the
+    user does not own.
+
+    The rule in the library needs no list of types: if
+    `fn(path, field, value)` is a valid call, the field is a value;
+    otherwise it is opened. The callback is an overload set, so the user
+    states the value types by writing the overloads that handle them, which
+    has to be done anyway. The check is a `requires` expression in an
+    `if constexpr`. The price is that an unconstrained `const auto&`
+    parameter accepts everything and stops the descent.
+
+19. **The headers include each other with relative paths**
     (`#include "list.hpp"`), so the include directory does not have to be on
     the search path, and `tools/amalgamate.py` can inline them into
     `single_include/reflect/reflect.hpp`.
@@ -291,15 +336,20 @@ Not checked:
 
 ## Not in this version
 
-- **A recursive walk over nested objects.** The open question is the
-  descent rule: which field types count as "an object to descend into" and
-  which as a value. A `std::string` is a class with fields, and nobody wants
-  to walk it.
-- **Inherited annotations.** An annotation on a base class is not reported
-  for the derived class.
+Both of these were tried in a prototype and work with GCC 16.2. They were
+left out to keep the first version small.
+
 - **Constraints on annotations**, such as "only on fields" or "at most
-  once". The library could check them when a type is inspected; C++26 cannot
-  check them at the annotated declaration.
+  once", declared on the annotation type. The library can check them when a
+  type is inspected; C++26 cannot check them at the annotated declaration,
+  so a type nobody reflects on is never checked.
 - **Namespaces, free functions and variables** as reflection targets.
-- **Constructors** as something to call, and operators in
-  `get_functions_of` (decision D5).
+  `function::invoke` assumes a member function and would need a second form.
+
+Not possible with C++26:
+
+- Calling a private constructor, a constructor template or an inherited
+  constructor through a proxy. See implementation note 16.
+- Letting `make` skip a field. Every field gets a value from the callback.
+  To fill only some fields, default construct the object and use
+  `for_each_field`.
