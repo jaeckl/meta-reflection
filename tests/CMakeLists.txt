@@ -23,6 +23,7 @@ reflect_add_test(constructors)
 reflect_add_test(tables)
 reflect_add_test(walk)
 reflect_add_test(builder)
+reflect_add_test(namespaces)
 
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)

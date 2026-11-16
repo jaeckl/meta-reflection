@@ -15,6 +15,7 @@
 #include "function.hpp"
 #include "list.hpp"
 #include "member.hpp"
+#include "namespace.hpp"
 #include "object.hpp"
 #include "parameter.hpp"
 #include "static_field.hpp"
