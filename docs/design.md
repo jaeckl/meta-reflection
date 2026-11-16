@@ -135,13 +135,13 @@ Decided:
 | --- | --- | --- | --- |
 | D1 | Default access policy | `unchecked_access`: every declared member, private included | See [Access](#access). Matches `getDeclaredFields` in Java |
 | D2 | Namespace name | `reflect` | `meta` clashes with `std::meta` under `using namespace std;` |
+| D3 | `get_` prefix | Kept: `get_fields_of`, for every function that retrieves something | One verb for everything that is looked up, next to `for_each_` and `has_` |
 
 Open. The library currently uses the choice in the third column, and it may
 change before 1.0:
 
 | Id | Question | Current choice | Alternative |
 | --- | --- | --- | --- |
-| D3 | `get_` prefix | Kept: `get_fields_of` | `fields_of`, matching `std::meta::members_of` |
 | D4 | Inherited fields | `get_fields_of` lists declared fields only; `get_all_fields_of` is a separate function | One function with an option |
 | D5 | Content of `get_functions_of` | Functions with a name only | Also operators and conversion functions |
 
