@@ -20,6 +20,9 @@ target_compile_features(reflect INTERFACE cxx_std_26)
 target_compile_options(reflect INTERFACE
     $<$<CXX_COMPILER_ID:GNU>:-freflection>)
 
+# reflect_generate(), for projects that generate source code with the library.
+include(cmake/ReflectGenerate.cmake)
+
 option(REFLECT_BUILD_EXAMPLES "Build the example programs" ${PROJECT_IS_TOP_LEVEL})
 option(REFLECT_BUILD_TESTS "Build the tests" ${PROJECT_IS_TOP_LEVEL})
 
@@ -60,4 +63,5 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/reflectConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/reflectConfigVersion.cmake
+    cmake/ReflectGenerate.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reflect)

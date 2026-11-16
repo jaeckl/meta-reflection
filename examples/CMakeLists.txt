@@ -21,3 +21,6 @@ reflect_add_example(layout)
 reflect_add_example(inheritance)
 reflect_add_example(format)
 reflect_add_example(hash)
+
+# Several files and a generation step: it has its own directory.
+add_subdirectory(codegen)
