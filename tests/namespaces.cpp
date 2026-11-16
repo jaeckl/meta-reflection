@@ -37,6 +37,21 @@ struct [[=Entity{}]] Order {
 
 namespace empty {}
 
+namespace {
+struct Hidden {};
+}  // namespace
+namespace shop {
+namespace {
+struct Secret {};
+}  // namespace
+}  // namespace shop
+
+template <typename T>
+constexpr std::string_view local_name() {
+    struct Local {};
+    return reflect::qualified_name_of<Local>();
+}
+
 // Names.
 static_assert(reflect::qualified_name_of<Global>() == "Global");
 static_assert(reflect::qualified_name_of<shop::User>() == "shop::User");
@@ -46,6 +61,10 @@ static_assert(reflect::qualified_name_of<shop::inner::Order::Line>() ==
 static_assert(reflect::qualified_name_of<shop::Alias>() == "shop::User");
 static_assert(reflect::qualified_name_of<shop::Color>() == "shop::Color");
 static_assert(reflect::name_of<shop::User>() == "User");
+// A scope that cannot be named from outside ends the name.
+static_assert(reflect::qualified_name_of<Hidden>() == "Hidden");
+static_assert(reflect::qualified_name_of<shop::Secret>() == "Secret");
+static_assert(local_name<int>() == "Local");
 // No identifier: the compiler's text.
 static_assert(!reflect::qualified_name_of<int>().empty());
 static_assert(!reflect::qualified_name_of<shop::Box<int>>().empty());

@@ -2050,9 +2050,11 @@ consteval const char* qualified_name(std::meta::info type) {
     std::string name(std::meta::identifier_of(type));
     for (std::meta::info scope = std::meta::parent_of(type); scope != ^^::;
          scope = std::meta::parent_of(scope)) {
-        // An unnamed namespace, or a function for a local class: such a
-        // scope has no name to write, and neither has anything around it.
-        if (!std::meta::has_identifier(scope))
+        // A function, for a local class, or an unnamed namespace: the type
+        // cannot be named from outside such a scope, so the scopes are
+        // left out.
+        bool nameable = std::meta::is_namespace(scope) || std::meta::is_type(scope);
+        if (!nameable || !std::meta::has_identifier(scope))
             break;
         name = std::string(std::meta::identifier_of(scope)) + "::" + name;
     }
