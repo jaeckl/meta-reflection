@@ -20,6 +20,23 @@ target_compile_features(reflect INTERFACE cxx_std_26)
 target_compile_options(reflect INTERFACE
     $<$<CXX_COMPILER_ID:GNU>:-freflection>)
 
+option(REFLECT_BUILD_TESTS "Build the tests" ${PROJECT_IS_TOP_LEVEL})
+
+if(REFLECT_BUILD_TESTS)
+    include(cmake/CheckReflection.cmake)
+    if(NOT REFLECT_HAVE_REFLECTION)
+        message(WARNING
+            "reflect: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} cannot "
+            "compile C++26 reflection, so the tests are skipped. "
+            "GCC 16 or newer is needed.")
+    endif()
+endif()
+
+if(REFLECT_BUILD_TESTS AND REFLECT_HAVE_REFLECTION)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 # Install: headers plus a package so that find_package(reflect) works.
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(TARGETS reflect EXPORT reflectTargets)

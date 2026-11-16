@@ -4,3 +4,8 @@
 // Include this header to get the whole library.
 
 #include "config.hpp"
+
+#include "access.hpp"
+#include "annotation.hpp"
+#include "list.hpp"
+#include "string.hpp"
