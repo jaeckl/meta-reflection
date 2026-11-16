@@ -7,13 +7,20 @@ on:
 
 jobs:
   gcc:
-    name: GCC ${{ matrix.gcc }}
+    name: GCC ${{ matrix.gcc }} (${{ matrix.build.name }})
     runs-on: ubuntu-latest
     container: gcc:${{ matrix.gcc }}
     strategy:
       fail-fast: false
       matrix:
         gcc: ["16"]
+        build:
+          - name: default
+            options: ""
+          - name: sanitizers
+            options: >-
+              -DCMAKE_BUILD_TYPE=Debug
+              "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all"
 
     steps:
       - uses: actions/checkout@v7
@@ -24,7 +31,7 @@ jobs:
           apt-get install -y --no-install-recommends cmake ninja-build python3
 
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_CXX_COMPILER=g++
+        run: cmake -B build -G Ninja -DCMAKE_CXX_COMPILER=g++ ${{ matrix.build.options }}
 
       - name: Build
         run: cmake --build build
