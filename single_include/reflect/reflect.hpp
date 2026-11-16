@@ -1329,15 +1329,33 @@ constexpr bool for_each_field_while(Object& object, Fn& fn,
             ...);
 }
 
-template <typename T, typename Fn, std::meta::info... Infos>
-constexpr T make(Fn& fn, list<field, Infos...>) {
-    if constexpr (std::is_aggregate_v<T> && bases_of_t<T>::empty()) {
-        // Braces guarantee that the callback runs in declaration order.
-        return T{fn(field<Infos>{})...};
+template <typename T, access_context Access, typename Fn>
+constexpr T make(Fn& fn);
+
+// An aggregate is brace-initialized: one initializer per base class, built
+// the same way, then one per field. Braces also guarantee that the callback
+// runs in that order.
+template <typename T, access_context Access, typename Fn, std::meta::info... Bases,
+          std::meta::info... Fields>
+constexpr T make_aggregate(Fn& fn, list<base, Bases...>, list<field, Fields...>) {
+    return T{make<typename base<Bases>::type, Access>(fn)...,
+             fn(field<Fields>{})...};
+}
+
+template <typename T, typename Fn, std::meta::info... Fields>
+constexpr T make_assigned(Fn& fn, list<field, Fields...>) {
+    T object{};
+    (field<Fields>::set(object, fn(field<Fields>{})), ...);
+    return object;
+}
+
+template <typename T, access_context Access, typename Fn>
+constexpr T make(Fn& fn) {
+    if constexpr (std::is_aggregate_v<T>) {
+        return make_aggregate<T, Access>(fn, bases_of_t<T, Access>{},
+                                         fields_of_t<T, Access>{});
     } else {
-        T object{};
-        (field<Infos>::set(object, fn(field<Infos>{})), ...);
-        return object;
+        return make_assigned<T>(fn, all_fields_of_t<T, Access>{});
     }
 }
 
@@ -1396,16 +1414,20 @@ constexpr bool visit_field(Object&& object, std::string_view name, Fn&& fn) {
     return found;
 }
 
-/// Builds a T by asking fn(field) for the value of every field, in
-/// declaration order. The counterpart of for_each_field for reading input.
+/// Builds a T by asking fn(field) for the value of every field. The
+/// counterpart of for_each_field for reading input.
 ///
-/// An aggregate without base classes is brace-initialized, so const and
-/// reference members work. Any other type has to be default constructible
-/// and is assigned field by field.
+/// Inherited fields are part of the object, so fn is asked for them too:
+/// the fields of the base classes first, then those of T, in the order of
+/// get_all_fields_of<T>().
+///
+/// An aggregate is brace-initialized, so const and reference members work.
+/// Any other type has to be default constructible and is assigned field by
+/// field.
 template <typename T, access_context Access = default_access, typename Fn>
     requires std::is_class_v<T>
 constexpr T make(Fn&& fn) {
-    return detail::make<T>(fn, fields_of_t<T, Access>{});
+    return detail::make<T, Access>(fn);
 }
 
 }  // namespace reflect

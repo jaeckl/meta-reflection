@@ -38,6 +38,42 @@ struct Packed {
     unsigned high : 4 = 0;
 };
 
+// Aggregates with base classes.
+struct Stamped {
+    int created = -1;
+};
+struct Tagged {
+    int tag = -1;
+};
+struct Note : Stamped, Tagged {
+    int priority = -1;
+};
+struct Memo : Note {
+    int pages = -1;
+};
+
+// A class hierarchy that is not an aggregate.
+class Entity {
+public:
+    long id() const { return id_; }
+
+private:
+    long id_ = 0;
+};
+class Customer : public Entity {
+public:
+    Customer() = default;
+    const std::string& name() const { return name_; }
+
+private:
+    std::string name_;
+};
+
+// An aggregate whose base class is not one.
+struct Order : Entity {
+    int amount = -1;
+};
+
 // --- tie ---------------------------------------------------------------------
 
 constexpr bool equal(const Point& a, const Point& b) {
@@ -58,6 +94,16 @@ static_assert(!less({1, 2}, {1, 2}));
 static_assert(reflect::make<Point>([](auto field) {
                   return field.name() == "x" ? 3 : 4;
               }).y == 4);
+
+// Inherited fields are asked for as well, base classes first.
+constexpr Memo numbered_memo() {
+    int next = 0;
+    return reflect::make<Memo>([&](auto) { return ++next; });
+}
+static_assert(numbered_memo().created == 1);
+static_assert(numbered_memo().tag == 2);
+static_assert(numbered_memo().priority == 3);
+static_assert(numbered_memo().pages == 4);
 
 int main() {
     // tie gives references into the object.
@@ -195,6 +241,34 @@ int main() {
                 return "five";
         });
     CHECK(fixed.id == 5 && fixed.label == "five");
+
+    // The callback sees inherited fields in the order of get_all_fields_of.
+    std::vector<std::string> asked;
+    Note note = reflect::make<Note>([&](auto field) {
+        asked.emplace_back(field.name());
+        return static_cast<int>(asked.size());
+    });
+    CHECK((asked == std::vector<std::string>{"created", "tag", "priority"}));
+    auto all_names = reflect::get_all_fields_of<Note>().names();
+    CHECK((asked == std::vector<std::string>(all_names.begin(), all_names.end())));
+    CHECK(note.created == 1 && note.tag == 2 && note.priority == 3);
+
+    // Private fields of a base class, in a class that is not an aggregate.
+    auto id_and_name = [](auto field) -> typename decltype(field)::type {
+        using Type = typename decltype(field)::type;
+        if constexpr (std::same_as<Type, long>)
+            return 12L;
+        else if constexpr (std::same_as<Type, int>)
+            return 99;
+        else
+            return "Linus";
+    };
+    Customer customer = reflect::make<Customer>(id_and_name);
+    CHECK(customer.id() == 12 && customer.name() == "Linus");
+
+    // An aggregate on top of a base class that is not an aggregate.
+    Order order_made = reflect::make<Order>(id_and_name);
+    CHECK(order_made.id() == 12 && order_made.amount == 99);
 
     return test::result();
 }

@@ -670,13 +670,18 @@ whose name equals `name`, which may be a run-time value, and returns `true`.
 It returns `false`, without calling `fn`, if there is no such field. `fn` is
 instantiated for every field of the type and has to compile for each.
 
-**`make<T>(fn)`** builds a `T`. It calls `fn(field)` for every field, in
-declaration order, and uses the result as the value of that field.
+**`make<T>(fn)`** builds a `T`. It calls `fn(field)` for every field and
+uses the result as the value of that field.
 
-- If `T` is an aggregate without base classes, the object is created with
-  `T{...}`. Const and reference members work, and `T` needs no default
-  constructor.
-- Otherwise `T` is default constructed and each field is assigned.
+Inherited fields belong to the object, so `fn` is asked for them as well:
+the fields of the base classes first, then those of `T`. That is the order
+of `get_all_fields_of<T>()`.
+
+- If `T` is an aggregate, the object is created with braces, `T{...}`, and
+  each base class is built the same way. Const and reference members work,
+  and `T` needs no default constructor.
+- Otherwise `T` is default constructed and each field is assigned. Every
+  field then has to be assignable.
 
 `fn` usually declares its return type as
 `-> typename decltype(field)::type`.
