@@ -81,11 +81,8 @@ struct annotated {
     template <typename A>
     static consteval std::array<A, detail::annotation_count<A>(Info)>
     get_annotations() {
-        // A pack expansion, so that A needs no default constructor.
-        return []<std::size_t... I>(std::index_sequence<I...>) {
-            return std::array<A, sizeof...(I)>{
-                std::meta::extract<A>(detail::annotations(Info, ^^A)[I])...};
-        }(std::make_index_sequence<detail::annotation_count<A>(Info)>{});
+        return detail::annotation_values<A>(
+            Info, std::make_index_sequence<detail::annotation_count<A>(Info)>{});
     }
 
     /// Every annotation, whatever its type, as a list of annotation proxies.

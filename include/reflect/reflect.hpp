@@ -14,6 +14,7 @@
 #include "list.hpp"
 #include "member.hpp"
 #include "object.hpp"
+#include "parameter.hpp"
 #include "static_field.hpp"
 #include "string.hpp"
 #include "type.hpp"

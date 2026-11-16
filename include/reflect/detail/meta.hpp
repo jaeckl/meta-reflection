@@ -4,9 +4,11 @@
 
 #include "../config.hpp"
 
+#include <array>
 #include <cstddef>
 #include <initializer_list>
 #include <meta>
+#include <utility>
 #include <vector>
 
 namespace reflect {
@@ -73,6 +75,14 @@ consteval std::vector<std::meta::info> annotations(std::meta::info target,
 template <typename A>
 consteval std::size_t annotation_count(std::meta::info target) {
     return annotations(target, ^^A).size();
+}
+
+// A pack expansion rather than a loop, so that A needs no default constructor.
+template <typename A, std::size_t... I>
+consteval std::array<A, sizeof...(I)> annotation_values(
+    std::meta::info target, std::index_sequence<I...>) {
+    [[maybe_unused]] std::vector<std::meta::info> found = annotations(target, ^^A);
+    return {std::meta::extract<A>(found[I])...};
 }
 
 template <typename A>
