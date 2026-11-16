@@ -26,21 +26,29 @@ namespace detail {
 
 // "a/./b/../c\\d" becomes "a/c/d". Paths are compared as text; the file
 // system is not consulted.
+//
+// The characters are copied one by one. A std::string constructed from a
+// piece of `path` would be shorter, but with -fsanitize=undefined GCC 16
+// rejects that at compile time when `path` is a template argument, as a
+// file name in inputs<...> is.
 constexpr std::string normalize_path(std::string_view path) {
     std::vector<std::string> parts;
-    bool absolute = !path.empty() && (path[0] == '/' || path[0] == '\\');
-    std::size_t start = 0;
-    while (start <= path.size()) {
-        std::size_t end = path.find_first_of("/\\", start);
-        if (end == std::string_view::npos)
-            end = path.size();
-        std::string_view part = path.substr(start, end - start);
+    std::string part;
+    auto end_of_part = [&] {
         if (part == ".." && !parts.empty() && parts.back() != "..")
             parts.pop_back();
         else if (!part.empty() && part != ".")
-            parts.emplace_back(part);
-        start = end + 1;
+            parts.push_back(part);
+        part.clear();
+    };
+    bool absolute = !path.empty() && (path[0] == '/' || path[0] == '\\');
+    for (char character : path) {
+        if (character == '/' || character == '\\')
+            end_of_part();
+        else
+            part.push_back(character);
     }
+    end_of_part();
     std::string result = absolute ? "/" : "";
     for (std::size_t i = 0; i < parts.size(); ++i) {
         if (i != 0)
