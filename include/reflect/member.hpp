@@ -7,6 +7,7 @@
 #include "field.hpp"
 #include "function.hpp"
 #include "list.hpp"
+#include "static_field.hpp"
 
 #include <meta>
 #include <string_view>
@@ -83,6 +84,13 @@ struct member : annotated<Info> {
         requires(std::meta::is_nonstatic_data_member(Info))
     {
         return field<Info>{};
+    }
+
+    /// The same member as a static field proxy. Only for static data members.
+    static constexpr auto as_static_field()
+        requires(std::meta::is_variable(Info))
+    {
+        return static_field<Info>{};
     }
 
     /// The same member as a function proxy. Only if is_function().
