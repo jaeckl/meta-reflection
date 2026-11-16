@@ -40,6 +40,9 @@ apt-get update && apt-get install -y cmake ninja-build python3
 cmake -B build -G Ninja && cmake --build build && ctest --test-dir build
 ```
 
+Every push and every pull request runs these steps on GitHub Actions, see
+[.github/workflows/ci.yml](.github/workflows/ci.yml).
+
 ## Layout
 
 | Path | Contents |

@@ -1,5 +1,8 @@
 # reflect
 
+[![CI](https://github.com/jaeckl/meta-reflection/actions/workflows/ci.yml/badge.svg)](https://github.com/jaeckl/meta-reflection/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A readable API on top of C++26 static reflection (`std::meta`).
 
 C++26 lets a program look at its own types: the members of a struct, the
