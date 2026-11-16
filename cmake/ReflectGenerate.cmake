@@ -1,3 +1,9 @@
+# Code generation with reflect. Experimental.
+#
+# reflect_process: generated code from annotations, with ready-made
+# processors. reflect_generate: the step below it, for a generator program
+# you write yourself.
+
 # reflect_generate: source code written by a program that uses reflection.
 #
 #     reflect_generate(<target>
@@ -50,4 +56,86 @@ function(reflect_generate target)
 
     target_sources(${target} PRIVATE ${output})
     target_include_directories(${target} PRIVATE ${directory})
+endfunction()
+
+# reflect_process: code generated from annotations, without writing a
+# generator program.
+#
+#     reflect_process(<target>
+#         HEADERS <header>...              the headers with the annotated classes
+#         PROCESSORS <class>...            the processors to run, as C++ class names
+#         [PROCESSOR_HEADERS <header>...]  headers that declare your own processors
+#         [OUTPUT <file>])                 default: <target>_generated.hpp
+#
+# Writes the generator program, builds it, runs it before <target> is
+# compiled and adds the generated header to <target>, to be included as
+# #include "<file>". The generated header includes the HEADERS itself.
+#
+# The processors run in the order given, over every class declared in one
+# of the HEADERS. reflect::codegen::builder_processor comes with the
+# library. A header in PROCESSOR_HEADERS is a path, or <name> for one that
+# is found on the include path.
+
+function(reflect_process target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "OUTPUT"
+        "HEADERS;PROCESSORS;PROCESSOR_HEADERS")
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "reflect_process: ${target} is not a target")
+    endif()
+    if(NOT ARG_HEADERS OR NOT ARG_PROCESSORS)
+        message(FATAL_ERROR "reflect_process: HEADERS and PROCESSORS are required")
+    endif()
+    if(ARG_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "reflect_process: unknown arguments: ${ARG_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT ARG_OUTPUT)
+        set(ARG_OUTPUT ${target}_generated.hpp)
+    endif()
+
+    # Absolute paths: the generator finds its classes by the file they are
+    # declared in, and the generated header works from any directory.
+    set(input_includes "")
+    set(inputs "")
+    foreach(header IN LISTS ARG_HEADERS)
+        cmake_path(ABSOLUTE_PATH header BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} NORMALIZE)
+        if(NOT EXISTS ${header})
+            message(FATAL_ERROR "reflect_process: no such header: ${header}")
+        endif()
+        string(APPEND input_includes "#include \"${header}\"\n")
+        list(APPEND inputs "\"${header}\"")
+    endforeach()
+    list(JOIN inputs ",\n            " inputs)
+
+    set(processor_includes "")
+    foreach(header IN LISTS ARG_PROCESSOR_HEADERS)
+        if(header MATCHES "^<.+>$")
+            string(APPEND processor_includes "#include ${header}\n")
+        else()
+            cmake_path(ABSOLUTE_PATH header BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} NORMALIZE)
+            if(NOT EXISTS ${header})
+                message(FATAL_ERROR "reflect_process: no such header: ${header}")
+            endif()
+            string(APPEND processor_includes "#include \"${header}\"\n")
+        endif()
+    endforeach()
+    list(JOIN ARG_PROCESSORS ",\n        " processors)
+
+    string(MAKE_C_IDENTIFIER "${ARG_OUTPUT}" name)
+    set(generator ${CMAKE_CURRENT_BINARY_DIR}/${target}_generated/${name}_generator.cpp)
+    file(CONFIGURE OUTPUT ${generator} @ONLY CONTENT [[
+// Written by reflect_process() for the target @target@. Do not edit.
+
+@input_includes@
+#include <reflect/codegen.hpp>
+@processor_includes@
+int main(int argc, char** argv) {
+    return reflect::codegen::run<
+        reflect::codegen::inputs<
+            @inputs@>,
+        @processors@>(argc, argv);
+}
+]])
+
+    reflect_generate(${target} GENERATOR ${generator} OUTPUT ${ARG_OUTPUT})
 endfunction()
