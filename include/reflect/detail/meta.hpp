@@ -29,6 +29,18 @@ consteval std::meta::info make_list(std::meta::info proxy_template,
     return std::meta::substitute(^^list, arguments);
 }
 
+// The list type of the items whose flag in `keep` is set.
+consteval std::meta::info make_filtered_list(
+    std::meta::info proxy_template, std::initializer_list<std::meta::info> items,
+    std::initializer_list<bool> keep) {
+    std::vector<std::meta::info> kept;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (keep.begin()[i])
+            kept.push_back(items.begin()[i]);
+    }
+    return make_list(proxy_template, kept);
+}
+
 consteval std::meta::info nth(std::size_t index,
                               std::initializer_list<std::meta::info> items) {
     return items.begin()[index];

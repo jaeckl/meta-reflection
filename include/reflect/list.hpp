@@ -36,6 +36,56 @@ struct list {
         (static_cast<void>(fn(Proxy<Infos>{})), ...);
     }
 
+    /// Like for_each, but stops as soon as fn returns false.
+    /// Returns true if every element was visited.
+    template <typename Fn>
+    static constexpr bool for_each_while(Fn&& fn) {
+        return (static_cast<bool>(fn(Proxy<Infos>{})) && ...);
+    }
+
+    /// True if pred(proxy) is true for at least one element.
+    template <typename Pred>
+    static constexpr bool any_of(Pred&& pred) {
+        return (static_cast<bool>(pred(Proxy<Infos>{})) || ...);
+    }
+
+    /// True if pred(proxy) is true for every element. True for an empty list.
+    template <typename Pred>
+    static constexpr bool all_of(Pred&& pred) {
+        return (static_cast<bool>(pred(Proxy<Infos>{})) && ...);
+    }
+
+    /// True if pred(proxy) is false for every element.
+    template <typename Pred>
+    static constexpr bool none_of(Pred&& pred) {
+        return !any_of(pred);
+    }
+
+    /// The number of elements for which pred(proxy) is true.
+    template <typename Pred>
+    static constexpr std::size_t count_if(Pred&& pred) {
+        return (std::size_t{0} + ... +
+                (static_cast<bool>(pred(Proxy<Infos>{})) ? 1u : 0u));
+    }
+
+    /// A new list with the elements for which pred(proxy) is true.
+    ///
+    /// The result is a type, so the answer has to be known at compile time:
+    /// pred may only look at the proxy, and a lambda must not capture.
+    template <typename Pred>
+    static constexpr auto filter([[maybe_unused]] Pred pred) {
+        using Result = [:detail::make_filtered_list(
+                             ^^Proxy, {Infos...},
+                             {static_cast<bool>(pred(Proxy<Infos>{}))...}):];
+        return Result{};
+    }
+
+    /// Calls fn(proxy) for every element and returns the results as a tuple.
+    template <typename Fn>
+    static constexpr auto map(Fn&& fn) {
+        return std::tuple{fn(Proxy<Infos>{})...};
+    }
+
     template <typename A>
     using with_t = [:detail::make_list(
                          ^^Proxy,
