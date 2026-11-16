@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <iosfwd>
 #include <meta>
 #include <string_view>
 
@@ -34,6 +35,13 @@ struct static_string {
 
     friend constexpr bool operator==(static_string left, static_string right) {
         return left.view() == right.view();
+    }
+
+    /// std::cout << annotation.text
+    template <typename Traits>
+    friend std::basic_ostream<char, Traits>& operator<<(
+        std::basic_ostream<char, Traits>& out, static_string text) {
+        return out << text.view();
     }
 };
 

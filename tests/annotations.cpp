@@ -2,6 +2,7 @@
 
 #include "check.hpp"
 
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -109,6 +110,10 @@ int main() {
     // An annotation value survives into run time as an ordinary object.
     Table stored = reflect::get_annotation<Table, User>();
     CHECK(std::string(stored.name.c_str()) == "users");
+
+    std::ostringstream out;
+    out << stored.name << '/' << std::string(stored.name);
+    CHECK(out.str() == "users/users");
 
     return test::result();
 }
