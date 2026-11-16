@@ -349,8 +349,9 @@ left out to keep the first version small.
   `for_each_class_in`.
 
 Experimental, and not covered by the decisions above: `builder`,
-`for_each_class_in`, `qualified_name_of` and the CMake function
-`reflect_generate`. See [Generating code](code-generation.md).
+`for_each_class_in`, `qualified_name_of`, the namespace `reflect::codegen`
+and the CMake functions `reflect_process` and `reflect_generate`. See
+[Generating code](code-generation.md).
 
 - `builder` records the fields that were set in its type,
   `builder<T, ^^T::a, ^^T::b>`. That is what makes "a required field is
@@ -367,6 +368,27 @@ Experimental, and not covered by the decisions above: `builder`,
   which breaks the one-definition rule without a diagnostic. This is the
   main reason the feature is not final.
 
+- A generator finds its classes by the file they are declared in
+  (`std::meta::source_location_of`), not by namespace. That matches how a
+  build describes its input, a list of headers, and it needs no rule about
+  which namespaces belong to the project. The walk starts at the global
+  namespace and skips `std`; in a test with eight large standard headers
+  included it visited about 3000 declarations and added no measurable
+  compile time. The file names are compared as text, because compile-time
+  code cannot ask the file system, so a relative and an absolute spelling
+  match when one is the tail of the other.
+- C++ compilers have no interface for running a processor, as `javac` has.
+  The generator is therefore a separate program that the build system
+  compiles and runs, and `reflect_process` writes its `main`. A processor
+  stays an ordinary class template that is independent of the build system.
+- The `reflect::codegen` headers are kept out of `reflect.hpp` and of the
+  single header. They write files, and a program that only reads
+  annotations should not pay for them.
+- Open: several output files (the build system has to know them before the
+  generator runs), more than one round, writing the output only when it
+  changed, processors shipped as packages, and build systems other than
+  CMake.
+
 Not possible with C++26:
 
 - Calling a private constructor, a constructor template or an inherited
@@ -374,3 +396,7 @@ Not possible with C++26:
 - Letting `make` skip a field. Every field gets a value from the callback.
   To fill only some fields, default construct the object and use
   `for_each_field`.
+- Generated code that the annotated header itself uses. The generator
+  includes that header, so it has to compile first. Java allows this
+  because its compiler tolerates names that a later round provides.
+- Adding members to an existing class from a processor.

@@ -1,16 +1,28 @@
 # Generating code
 
-> **Experimental.** `reflect::builder`, `reflect::for_each_class_in`,
-> `reflect::qualified_name_of` and the CMake function `reflect_generate` are
-> a prototype. Names and behaviour may change.
+> **Experimental.** Everything on this page is a prototype:
+> `reflect::builder`, the namespace `reflect::codegen`, and the CMake
+> functions `reflect_process` and `reflect_generate`. Names and behaviour
+> may change.
 
 In Java, an annotation processor or a tool such as Lombok reads annotations
 and writes new classes: `@Builder` on a class gives you a `UserBuilder`.
-This page shows how far C++26 gets, and two ways to do it with this library.
+This page shows how far C++26 gets, and three ways to do it with this
+library.
 
 - [What C++26 can generate](#what-c26-can-generate)
 - [Way 1: a builder without generated code](#way-1-a-builder-without-generated-code)
-- [Way 2: a generator program in the build](#way-2-a-generator-program-in-the-build)
+- [Way 2: processors](#way-2-processors)
+  - [Annotate the classes](#annotate-the-classes)
+  - [Add the step to the build](#add-the-step-to-the-build)
+  - [Use the generated code](#use-the-generated-code)
+  - [What the build wrote](#what-the-build-wrote)
+  - [The builder processor](#the-builder-processor)
+  - [Write a processor](#write-a-processor)
+  - [Errors from a processor](#errors-from-a-processor)
+  - [Without CMake](#without-cmake)
+  - [How it works](#how-it-works)
+- [Way 3: a generator program of your own](#way-3-a-generator-program-of-your-own)
   - [The classes](#the-classes)
   - [The generator](#the-generator)
   - [The result](#the-result)
@@ -19,6 +31,7 @@ This page shows how far C++26 gets, and two ways to do it with this library.
   - [Meson](#meson)
   - [Rules for generators](#rules-for-generators)
 - [Which way to choose](#which-way-to-choose)
+- [Compared to Java annotation processing](#compared-to-java-annotation-processing)
 
 ## What C++26 can generate
 
@@ -34,7 +47,7 @@ Reading is complete in C++26. Writing is not:
 | Write a source file while compiling | No. Compile-time code cannot write files. |
 
 Functions with computed names and members added from outside are proposed
-for a later standard. Until then there are two ways around it.
+for a later standard. Until then there are three ways around it.
 
 ## Way 1: a builder without generated code
 
@@ -101,10 +114,314 @@ object and use [`visit_field`](getting-started.md#find-a-field-by-a-run-time-nam
 
 Full program: [builder.cpp](../examples/builder.cpp)
 
-## Way 2: a generator program in the build
+## Way 2: processors
 
 For real generated classes, do what a Java annotation processor does: run a
-program during the build that writes source code.
+program during the build that reads the annotations and writes source code.
+You do not write that program. You annotate classes, and list in the build
+which headers to read and which *processors* to run.
+
+The complete example is in [examples/processors/](../examples/processors).
+
+### Annotate the classes
+
+```cpp
+namespace shop {
+
+struct [[=reflect::generate_builder{}, =Printable{}]] User {
+    [[=reflect::required]] int id = 0;
+    [[=reflect::required]] std::string name;
+    std::string email = "none";
+};
+
+struct [[=reflect::generate_builder{"set_"}]] Order {
+    long number = 0;
+    double total = 0;
+};
+
+struct [[=Printable{}]] Receipt {
+    long order = 0;
+    bool paid = false;
+};
+
+}  // namespace shop
+```
+
+`reflect::generate_builder` comes with the library, and so does the
+processor that reads it. `Printable` is an annotation of the example
+project, with a processor of its own; see [Write a processor](#write-a-processor).
+
+### Add the step to the build
+
+```cmake
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE reflect::reflect)
+
+reflect_process(app
+    HEADERS model.hpp
+    PROCESSORS
+        reflect::codegen::builder_processor   # comes with the library
+        print_processor                       # this project's own
+    PROCESSOR_HEADERS print_processor.hpp
+    OUTPUT generated.hpp)
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `HEADERS` | The headers with the annotated classes. Every class declared in one of them is offered to the processors, whatever namespace it is in. |
+| `PROCESSORS` | The processors to run, as C++ class names, in this order. |
+| `PROCESSOR_HEADERS` | Headers that declare processors of your own: a path, or `<name>` for a header on the include path. Not needed for the processors of the library. |
+| `OUTPUT` | The name of the generated header. The default is `<target>_generated.hpp`. |
+
+`reflect_process` is available after `find_package(reflect)`,
+`FetchContent` or `add_subdirectory`. When one of the headers changes, the
+code is generated again.
+
+### Use the generated code
+
+The generated header includes the input headers, so one include is enough:
+
+```cpp
+#include "generated.hpp"
+```
+
+```cpp
+shop::User user = shop::UserBuilder().with_id(7).with_name("Ada").build();
+shop::Order order = shop::OrderBuilder().set_number(1001).set_total(59.9).build();
+
+std::cout << user << '\n';
+std::cout << shop::Receipt{order.number, true} << '\n';
+
+// The generated builder checks the required fields when build() runs.
+try {
+    shop::UserBuilder().with_id(8).build();
+} catch (const std::logic_error& error) {
+    std::cout << error.what() << '\n';
+}
+```
+
+```text
+User{id=7, name=Ada, email=none}
+Receipt{order=1001, paid=1}
+UserBuilder: the required field 'name' was not set
+```
+
+### What the build wrote
+
+From the builder processor, for `User`:
+
+```cpp
+namespace shop {
+
+class UserBuilder {
+public:
+    UserBuilder& with_id(decltype(shop::User::id) value) {
+        object_.id = std::move(value);
+        has_id_ = true;
+        return *this;
+    }
+    UserBuilder& with_name(decltype(shop::User::name) value) {
+        object_.name = std::move(value);
+        has_name_ = true;
+        return *this;
+    }
+    UserBuilder& with_email(decltype(shop::User::email) value) {
+        object_.email = std::move(value);
+        return *this;
+    }
+    shop::User build() {
+        if (!has_id_)
+            throw std::logic_error("UserBuilder: the required field 'id' was not set");
+        if (!has_name_)
+            throw std::logic_error("UserBuilder: the required field 'name' was not set");
+        return std::move(object_);
+    }
+
+private:
+    shop::User object_{};
+    bool has_id_ = false;
+    bool has_name_ = false;
+};
+
+}  // namespace shop
+```
+
+From the print processor, for `Receipt`:
+
+```cpp
+namespace shop {
+
+inline std::ostream& operator<<(std::ostream& out, const shop::Receipt& value) {
+    out << "Receipt{";
+    out << "order=" << value.order;
+    out << ", paid=" << value.paid;
+    return out << "}";
+}
+
+}  // namespace shop
+```
+
+The file is in the build directory. It is not meant to be edited or
+committed.
+
+### The builder processor
+
+`reflect::codegen::builder_processor` writes a class `<Name>Builder` for
+every class marked `[[=reflect::generate_builder{}]]`, in the namespace of
+that class.
+
+- **Setters.** One per public field that can be assigned, fields of base
+  classes included. Private fields, `const` fields, reference fields and
+  bit-fields get none: generated code is ordinary code and cannot do more
+  than code you write by hand.
+- **Setter names.** The prefix in the annotation plus the field name. The
+  default prefix is `with_`; `[[=reflect::generate_builder{"set_"}]]`
+  changes it.
+- **Required fields.** `build()` throws `std::logic_error` if a field marked
+  `[[=reflect::required]]` was not set. This check happens at run time;
+  [`reflect::builder`](#way-1-a-builder-without-generated-code) does it at
+  compile time.
+- **Everything else** keeps the value of a default-constructed object, so
+  the class needs a default constructor.
+
+The processor reports an error, and the build stops, for a class without a
+default constructor, for a required field that is not public or cannot be
+assigned, and for a class in an unnamed namespace.
+
+### Write a processor
+
+A processor is a class with a function template `process`. The build calls
+it once for every class that carries the annotation named by `annotation`:
+
+```cpp
+struct print_processor {
+    using annotation = Printable;
+
+    template <typename T>
+    static void process(reflect::codegen::context& context) {
+        std::string_view type = reflect::qualified_name_of<T>();
+
+        if (reflect::get_fields_of<T, reflect::public_access>().empty()) {
+            // Printed like a compiler error, at the line of the class.
+            context.error<T>("Printable: the class has no public fields to print");
+            return;
+        }
+
+        context.include("<ostream>");
+        reflect::codegen::source_writer& out = context.out();
+
+        // The operator goes into the namespace of the class, where the
+        // compiler looks for it.
+        reflect::codegen::namespace_scope scope(out, reflect::codegen::namespace_of<T>());
+
+        out.line("inline std::ostream& operator<<(std::ostream& out, const ", type,
+                 "& value) {");
+        {
+            auto body = out.indented();
+            out.line("out << \"", reflect::name_of<T>(), "{\";");
+            bool first = true;
+            reflect::for_each_field<T, reflect::public_access>([&](auto field) {
+                out.line("out << \"", first ? "" : ", ", field.name(), "=\" << value.",
+                         field.name(), ";");
+                first = false;
+            });
+            out.line("return out << \"}\";");
+        }
+        out.line("}");
+        out.blank();
+    }
+};
+```
+
+Inside `process`, `T` is the class, and the whole library is available to
+ask about it. What the processor gets to work with:
+
+| | |
+| --- | --- |
+| `context.out()` | The writer for the generated code. |
+| `out.line(parts...)` | Writes one line: the current indentation, then the parts. A part is anything a stream can print. |
+| `out.blank()` | Writes an empty line. |
+| `out.indented()` | Indents every line written while the returned object is alive. |
+| `namespace_scope(out, name)` | Opens `namespace name {` and closes it at the end of the scope. |
+| `context.include("<header>")` | Asks for an `#include` at the top of the generated file. Asking twice is harmless. |
+| `context.error<T>(message)` | Reports an error at the declaration of the class. |
+| `context.error(field, message)` | Reports an error at the declaration of a member. |
+| `reflect::qualified_name_of<T>()` | The class name to write in code: `shop::User`. |
+| `reflect::codegen::namespace_of<T>()` | The namespace of the class: `shop`. |
+| `reflect::codegen::can_be_named<T>()` | Whether generated code can refer to the class at all. |
+
+A processor without `annotation` is called for every class of the input
+headers.
+
+The same advice as for any generated code applies: spell the type of a
+field as `decltype(shop::User::name)` instead of printing a type name, and
+remember that the generated code cannot reach private members.
+
+### Errors from a processor
+
+`context.error` prints the message in the format of a compiler error, with
+the file and line of the declaration, and makes the generator fail. The
+build stops, nothing is written, and an editor can jump to the line. If
+`Receipt` had only private fields, the build of the example would end with:
+
+```text
+/project/examples/processors/model.hpp:26:25: error: Printable: the class has no public fields to print
+```
+
+Report every problem you find instead of stopping at the first; the user
+then sees all of them in one build.
+
+### Without CMake
+
+`reflect_process` writes a small program and builds it. With another build
+system, write that program yourself. It is the same for every project:
+
+```cpp
+#include "model.hpp"
+#include "print_processor.hpp"
+
+#include <reflect/codegen.hpp>
+
+int main(int argc, char** argv) {
+    return reflect::codegen::run<
+        reflect::codegen::inputs<"model.hpp">,
+        reflect::codegen::builder_processor,
+        print_processor>(argc, argv);
+}
+```
+
+Compile it, run it with the path of the header to write as its argument,
+and compile the rest of the project afterwards. The [Make](#make) and
+[Meson](#meson) rules further down do exactly that for a generator program;
+with the file names changed they work for this one.
+
+A name in `inputs<...>` is the header as it is included, or with more of its
+path in front. The generated header includes the inputs under the same
+names.
+
+### How it works
+
+- The generator includes the input headers, so the compiler has parsed
+  them. No other parser is involved.
+- It walks every namespace, starting at the global one, and keeps the
+  classes whose declaration is in one of the input headers. Namespace `std`
+  is skipped.
+- **Found:** classes and structs in any namespace, including inline and
+  nested namespaces, and classes nested in other classes.
+- **Not found:** class templates, classes that are only declared, and
+  classes from headers that are merely included by an input header. List
+  such a header in `HEADERS` to have its classes processed too.
+- All processors of one `reflect_process` call write into one header.
+- `<reflect/codegen.hpp>` is only for generator programs. It is not part of
+  `<reflect/reflect.hpp>` or of the single header, and the annotations
+  (`reflect::generate_builder`, `reflect::required`) do not need it.
+
+## Way 3: a generator program of your own
+
+Processors write code class by class into one header. When that does not
+fit, because the output is several files or is not C++, or because the
+classes are chosen in some other way, write the whole generator program
+yourself. This is the layer `reflect_process` is built on.
 
 ```text
 model.hpp ──► generate_builders.cpp ──compile, run──► builders.hpp ──┐
@@ -385,15 +702,36 @@ executable('app', 'main.cpp', builders, dependencies: reflect)
 
 ## Which way to choose
 
-| | `reflect::builder` | Generator program |
-| --- | --- | --- |
-| Build setup | none | one extra step |
-| Call syntax | `.set<"name">("Ada")` | `.with_name("Ada")` |
-| Wrong field name | compile error | compile error |
-| Required fields | checked at compile time | whatever the generator writes |
-| Private fields | yes | no, or through `friend` |
-| Editor completion for setters | no | yes |
-| Can produce | builders | any code: builders, serializers, bindings, SQL, documentation |
+| | `reflect::builder` | Processors | Own generator program |
+| --- | --- | --- | --- |
+| Build setup | none | one `reflect_process` call | one `reflect_generate` call and a program |
+| You write | nothing | annotations; a processor for anything the library does not bring | the whole generator |
+| Call syntax | `.set<"name">("Ada")` | `.with_name("Ada")` | whatever you generate |
+| Wrong field name | compile error | compile error | compile error |
+| Required fields | checked at compile time | checked at run time by the builder processor | whatever you generate |
+| Private fields | yes | no | no, or through `friend` |
+| Editor completion for setters | no | yes, after a build | yes, after a build |
+| Can produce | builders | C++ code per class, in one header | anything: several files, SQL, documentation |
 
-Start with the first. Use a generator when the generated names matter, when
-other tools have to read the result, or when the output is not C++.
+Start with the first. Use processors when the generated names matter or
+when the same generated code is wanted for many classes. Write your own
+generator for output that processors cannot produce.
+
+## Compared to Java annotation processing
+
+| Java | Here |
+| --- | --- |
+| A processor is a class that implements `Processor` | A processor is a class with `process<T>(context&)`. |
+| `RoundEnvironment.getElementsAnnotatedWith` | The classes of the input headers that carry `annotation`. Members are reached through their class. |
+| `Filer`, and libraries such as JavaPoet | `context`, `source_writer`. One output file. |
+| `Messager.printMessage` with an element | `context.error`, at the file and line of the declaration. |
+| The compiler runs the processors | The build system does. C++ compilers have no common interface for it. |
+| Processors are found on the processor path | They are listed in `reflect_process`. |
+| Several rounds: generated code is processed again | One round. |
+| An annotated class may use the code generated for it | No. The input headers have to compile before anything is generated. Code in other files uses the result. |
+| Maven, Gradle and others | A CMake function. Other build systems by the pattern shown above. |
+| Processors change nothing in existing classes (Lombok does, through compiler internals) | The same. C++26 cannot add members to a class either. |
+
+Not done yet: processors shipped as packages, several output files, more
+than one round, writing the output only when it changed, and support for
+build systems other than CMake.

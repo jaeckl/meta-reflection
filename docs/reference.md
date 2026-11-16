@@ -31,6 +31,7 @@ see the [Getting Started Guide](getting-started.md).
 - [Enums](#enums)
 - [Types](#types)
 - [Namespaces](#namespaces)
+- [Code generation](#code-generation)
 - [Field table](#field-table)
 - [Strings](#strings)
 - [List type aliases](#list-type-aliases)
@@ -77,7 +78,7 @@ can be included on their own.
 | `reflect/access.hpp` | access policies, `descriptor` |
 | `reflect/annotation.hpp` | `annotation`, annotation functions, `annotated_with` |
 | `reflect/base.hpp` | `base`, `get_bases_of`, `for_each_base` |
-| `reflect/builder.hpp` | `builder`, `required` (experimental) |
+| `reflect/builder.hpp` | `builder`, `required`, `generate_builder` (experimental) |
 | `reflect/constructor.hpp` | `constructor`, `get_constructors_of`, `get_constructor_of`, `for_each_constructor`, `construct` |
 | `reflect/enumerator.hpp` | `enumerator`, `enum_name`, `enum_cast`, `enum_values`, `enum_names`, `enum_count` |
 | `reflect/field.hpp` | `field`, `get_fields_of`, `get_all_fields_of`, `get_field_of`, `has_field`, `field_index_of`, `field_types_t`, `for_each_field` |
@@ -93,6 +94,7 @@ can be included on their own.
 | `reflect/type.hpp` | `name_of`, `qualified_name_of` |
 | `reflect/walk.hpp` | `walk`, `field_path`, `overloaded` |
 | `reflect/config.hpp` | version macros, compiler check |
+| `reflect/codegen.hpp` | `reflect::codegen`, for generator programs (experimental). Not included by `reflect/reflect.hpp`, and not in the single header. |
 
 ## Access policies
 
@@ -908,6 +910,10 @@ for an introduction.
 struct required_t {};
 inline constexpr required_t required{};          // [[=reflect::required]]
 
+struct generate_builder {                        // [[=reflect::generate_builder{}]]
+    static_string prefix = "with_";
+};
+
 template <typename T, std::meta::info... Set>
 class builder {
 public:
@@ -938,6 +944,10 @@ base class is annotated with `reflect::required` and is not in `Set`.
   changed.
 - `T` needs a default constructor, and the fields have to be assignable.
 - A builder works at compile time if `T` does.
+
+`generate_builder` is not used by `reflect::builder`. It asks the
+[builder processor](#code-generation) for a generated builder class, and
+does nothing in a build without that processor.
 
 ## Calling functions by name
 
@@ -1045,6 +1055,172 @@ reflect::for_each_class_in<^^shop>([]<typename T>(std::type_identity<T>) {
 This is the one place where the library reflects on something other than a
 class or an enum. Free functions and variables of a namespace are not
 covered.
+
+## Code generation
+
+Experimental. `#include <reflect/codegen.hpp>`, namespace
+`reflect::codegen`. These are for generator programs, which run while a
+project is built; see [Generating code](code-generation.md#way-2-processors).
+
+### Finding classes
+
+```cpp
+template <fixed_string... Files>
+struct inputs {};
+
+template <fixed_string... Files, typename Fn>
+constexpr void for_each_class_from(Fn&& fn);        // fn(std::type_identity<T>{})
+
+template <typename T> constexpr std::string_view namespace_of();
+template <typename T> consteval bool             can_be_named();
+```
+
+**`for_each_class_from<"model.hpp", ...>(fn)`** calls `fn` for every class
+declared in one of the given header files. The order is that of the
+declarations, with the classes of a namespace kept together.
+
+- Every namespace is searched, except `std` and namespaces whose name
+  starts with two underscores. Classes nested in other classes are
+  included, after the class around them.
+- Class templates, classes that are only declared, unions and enums are not
+  reported.
+- A file name matches if it is the path the compiler reports for the
+  declaration, or the end of that path, or the other way round, counted in
+  whole directory and file names. `model.hpp` and `src/model.hpp` match
+  `/project/src/model.hpp`; `data_model.hpp` does not. Paths are compared
+  as text.
+- Two headers with the same name in different directories are told apart
+  only if enough of the path is given.
+
+**`namespace_of<T>()`** is the namespace `T` is declared in:
+`"shop::detail"`, or `""` for the global namespace. Classes around `T` are
+not part of it.
+
+**`can_be_named<T>()`** is false if code in another file cannot refer to
+`T`: it is in an unnamed namespace or inside a function, or has no name.
+
+### Writing code
+
+```cpp
+class source_writer {
+public:
+    explicit source_writer(std::ostream& out);
+
+    template <typename... Parts>
+    source_writer& line(const Parts&... parts);
+    source_writer& blank();
+    [[nodiscard]] indentation indented();
+};
+
+class namespace_scope {
+public:
+    namespace_scope(source_writer& out, std::string_view name);
+    ~namespace_scope();
+};
+```
+
+| | |
+| --- | --- |
+| `line(parts...)` | Writes the indentation, the parts in order, and a newline. A part is anything that can be written to a stream. |
+| `blank()` | Writes an empty line. |
+| `indented()` | Adds four spaces of indentation to every line written during the lifetime of the returned object. Can be nested. |
+| `namespace_scope(out, "a::b")` | Writes `namespace a::b {` and an empty line, and at the end of its scope `}  // namespace a::b` and an empty line. Writes nothing for an empty name. |
+
+### Context
+
+```cpp
+class context {
+public:
+    explicit context(std::ostream& errors);
+
+    source_writer& out();
+    void include(std::string_view header);
+
+    template <typename T>   void error(std::string_view message);
+    template <descriptor D> void error(D proxy, std::string_view message);
+    bool failed() const;
+
+    std::string body() const;
+    const std::set<std::string>& includes() const;
+};
+```
+
+A processor receives the context of the current run.
+
+| | |
+| --- | --- |
+| `out()` | The writer for the generated code. |
+| `include("<utility>")` | Asks for that `#include` at the top of the generated file. The argument carries its brackets or quotes. The includes are written sorted, each once. |
+| `error<T>(message)` | Writes `file:line:column: error: message` to the error stream, with the place where `T` is declared, and marks the run as failed. |
+| `error(proxy, message)` | The same, with the place where the member behind the proxy is declared. |
+| `failed()` | Whether `error` has been called. |
+| `body()`, `includes()` | What the processors produced so far. |
+
+### Processors and running them
+
+```cpp
+template <typename Inputs, typename... Processors>
+bool generate(std::ostream& out, std::ostream& errors);
+
+template <typename Inputs, typename... Processors>
+int run(int argc, char** argv);
+
+struct builder_processor;     // for [[=reflect::generate_builder{}]]
+```
+
+A **processor** is a class with
+
+```cpp
+template <typename T>
+static void process(reflect::codegen::context& context);
+```
+
+and optionally a member type `annotation`. With it, `process` is called for
+the classes of the input headers that carry an annotation of that type;
+without it, for every class.
+
+**`generate<inputs<...>, Processors...>(out, errors)`** runs the processors
+in the order given, each over all classes, and writes the generated file to
+`out`: a comment, `#pragma once`, an `#include` for every input file under
+the name given in `inputs`, the includes the processors asked for, and
+their code. If a processor reported an error, nothing is written to `out`
+and the result is `false`.
+
+**`run<inputs<...>, Processors...>(argc, argv)`** is the `main` function of
+a generator program. It expects the path of the file to write as the only
+argument.
+
+| Result | Meaning |
+| --- | --- |
+| `0` | The file was written. |
+| `1` | A processor reported an error, or the file could not be written. The errors are on standard error. |
+| `2` | Wrong arguments. |
+
+**`builder_processor`** is described in
+[The builder processor](code-generation.md#the-builder-processor).
+
+### CMake functions
+
+```cmake
+reflect_process(<target>
+    HEADERS <header>...
+    PROCESSORS <class>...
+    [PROCESSOR_HEADERS <header>...]
+    [OUTPUT <file>])
+
+reflect_generate(<target>
+    GENERATOR <source>...
+    OUTPUT <file>
+    [DEPENDS <file>...])
+```
+
+`reflect_process` writes a generator program that calls `run` with the
+given headers and processors, and passes it to `reflect_generate`. See
+[Add the step to the build](code-generation.md#add-the-step-to-the-build).
+
+`reflect_generate` builds a generator program from the given sources, runs
+it with the path of the output file before the target is compiled, and adds
+the output to the target. See [CMake](code-generation.md#cmake).
 
 ## Field table
 
