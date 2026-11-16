@@ -21,8 +21,9 @@ reflect_add_test(overloads)
 reflect_add_test(parameters)
 reflect_add_test(tables)
 
-# The snippets of docs/getting-started.md.
+# The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)
+reflect_add_test(readme)
 
 # The generated single header has to behave like the split headers.
 add_executable(test_single_header guide.cpp)
