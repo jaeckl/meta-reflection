@@ -142,6 +142,25 @@ consteval std::array<A, sizeof...(I)> annotation_values(
     return {std::meta::extract<A>(found[I])...};
 }
 
+// The annotations of type `annotation` on the nearest class that has any:
+// `type` itself first, then its base classes, depth first and in the order
+// they are declared. Empty if neither the type nor a base class has one.
+consteval std::vector<std::meta::info> nearest_annotations(
+    std::meta::info type, std::meta::info annotation,
+    std::meta::access_context access) {
+    std::vector<std::meta::info> found = annotations(type, annotation);
+    if (!found.empty())
+        return found;
+    if (!std::meta::is_class_type(type) || !std::meta::is_complete_type(type))
+        return found;
+    for (std::meta::info base : std::meta::bases_of(type, access)) {
+        found = nearest_annotations(std::meta::type_of(base), annotation, access);
+        if (!found.empty())
+            return found;
+    }
+    return found;
+}
+
 template <typename A>
 consteval std::vector<std::meta::info> filter_by_annotation(
     const std::vector<std::meta::info>& items, bool keep_annotated) {
@@ -407,6 +426,62 @@ consteval auto get_annotations() {
 template <typename A, descriptor D>
 consteval auto get_annotations(D) {
     return annotated<D::native()>::template get_annotations<A>();
+}
+
+// ---------------------------------------------------------------------------
+// Annotations of a class or of one of its base classes.
+//
+// An annotation belongs to the class it is written on; a derived class does
+// not have it. These functions look further: at T first, then at its base
+// classes, depth first and in the order they are declared. The nearest class
+// that carries an annotation of type A answers, so a derived class can
+// replace what a base class says.
+// ---------------------------------------------------------------------------
+
+/// True if T or one of its base classes has an annotation of type A.
+template <typename A, typename T, access_context Access = default_access>
+consteval bool has_inherited_annotation() {
+    return !detail::nearest_annotations(^^T, ^^A, Access).empty();
+}
+
+/// The annotation of type A on T or, if T has none, on the nearest base
+/// class that has one. A compile error if there is none, or if that class
+/// has more than one.
+template <typename A, typename T, access_context Access = default_access>
+consteval A get_inherited_annotation() {
+    auto found = detail::nearest_annotations(^^T, ^^A, Access);
+    if (found.empty())
+        throw std::meta::exception(
+            "reflect::get_inherited_annotation: neither the class nor a base "
+            "class has an annotation of this type",
+            ^^T);
+    if (found.size() != 1)
+        throw std::meta::exception(
+            "reflect::get_inherited_annotation: more than one annotation of "
+            "this type on the nearest class that has one",
+            ^^T);
+    return std::meta::extract<A>(found[0]);
+}
+
+/// Like get_inherited_annotation, but std::nullopt if there is none.
+template <typename A, typename T, access_context Access = default_access>
+consteval std::optional<A> find_inherited_annotation() {
+    auto found = detail::nearest_annotations(^^T, ^^A, Access);
+    if (found.empty())
+        return std::nullopt;
+    if (found.size() != 1)
+        throw std::meta::exception(
+            "reflect::find_inherited_annotation: more than one annotation of "
+            "this type on the nearest class that has one",
+            ^^T);
+    return std::meta::extract<A>(found[0]);
+}
+
+/// Like get_inherited_annotation, but `fallback` if there is none.
+template <typename A, typename T, access_context Access = default_access>
+consteval A get_inherited_annotation_or(A fallback) {
+    std::optional<A> found = find_inherited_annotation<A, T, Access>();
+    return found ? *found : fallback;
 }
 
 /// A type that carries an annotation of type A. Lets a function accept only

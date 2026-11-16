@@ -29,6 +29,7 @@ output.
   - [Loop over annotations](#loop-over-annotations)
   - [Select fields by annotation](#select-fields-by-annotation)
   - [Accept only annotated types](#accept-only-annotated-types)
+  - [Annotations of base classes](#annotations-of-base-classes)
 - [Enums](#enums)
   - [Enum to text](#enum-to-text)
   - [Text to enum](#text-to-enum)
@@ -576,6 +577,39 @@ save(Account{});
 ```text
 saving Account
 ```
+
+### Annotations of base classes
+
+An annotation belongs to the class it is written on. A derived class does
+not have it:
+
+```cpp
+struct [[=Serializable{}, =Rename{"accounts"}]] StoredAccount {};
+struct [[=Rename{"admins"}]] AdminAccount : StoredAccount {};
+struct GuestAccount : StoredAccount {};
+```
+
+```cpp
+std::cout << reflect::has_annotation<Serializable, GuestAccount>() << '\n';
+std::cout << reflect::has_inherited_annotation<Serializable, GuestAccount>() << '\n';
+
+std::cout << reflect::get_inherited_annotation<Rename, GuestAccount>().name << '\n';
+std::cout << reflect::get_inherited_annotation<Rename, AdminAccount>().name << '\n';
+```
+
+```text
+false
+true
+accounts
+admins
+```
+
+The `inherited` functions look at the class first and then at its base
+classes. The nearest class that has the annotation answers, so
+`AdminAccount` replaces the name its base class gives.
+
+There is also `find_inherited_annotation`, which returns a `std::optional`,
+and `get_inherited_annotation_or`, which takes a fallback.
 
 ## Enums
 

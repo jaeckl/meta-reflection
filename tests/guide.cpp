@@ -44,6 +44,10 @@ struct [[=Serializable{}]] Account {
     [[=Alias{"nick"}, =Alias{"handle"}]] std::string nickname;
 };
 
+struct [[=Serializable{}, =Rename{"accounts"}]] StoredAccount {};
+struct [[=Rename{"admins"}]] AdminAccount : StoredAccount {};
+struct GuestAccount : StoredAccount {};
+
 enum class Color { Red, Green, Blue };
 
 class Counter {
@@ -305,6 +309,14 @@ void save(const T&) {
 void restrict_to_annotated_types() {
     save(Account{});
     // save(User{});   // does not compile: User is not Serializable
+}
+
+void annotations_of_base_classes() {
+    std::cout << reflect::has_annotation<Serializable, GuestAccount>() << '\n';
+    std::cout << reflect::has_inherited_annotation<Serializable, GuestAccount>() << '\n';
+
+    std::cout << reflect::get_inherited_annotation<Rename, GuestAccount>().name << '\n';
+    std::cout << reflect::get_inherited_annotation<Rename, AdminAccount>().name << '\n';
 }
 
 // --- Enums ---------------------------------------------------------------------
@@ -613,6 +625,7 @@ int main() {
     SECTION(loop_over_annotations);
     SECTION(select_fields_by_annotation);
     SECTION(restrict_to_annotated_types);
+    SECTION(annotations_of_base_classes);
     SECTION(enum_to_text);
     SECTION(text_to_enum);
     SECTION(list_enum_values);

@@ -22,6 +22,7 @@ see the [Getting Started Guide](getting-started.md).
   - [annotation](#annotation)
 - [list](#list)
 - [Annotation functions](#annotation-functions)
+  - [Annotations of base classes](#annotations-of-base-classes)
 - [Whole objects](#whole-objects)
 - [Walking nested objects](#walking-nested-objects)
 - [Constructing objects](#constructing-objects)
@@ -716,6 +717,42 @@ All of these are evaluated at compile time. The fallback given to
 See also `get_annotations_of` under [Discovery](#discovery) and
 `for_each_annotation` under [Iteration](#iteration).
 
+### Annotations of base classes
+
+An annotation belongs to the class it is written on, and the functions
+above look at that class only. These also look at its base classes:
+
+```cpp
+template <typename A, typename T, access_context Access = default_access>
+consteval bool             has_inherited_annotation();
+
+template <typename A, typename T, access_context Access = default_access>
+consteval A                get_inherited_annotation();
+
+template <typename A, typename T, access_context Access = default_access>
+consteval std::optional<A> find_inherited_annotation();
+
+template <typename A, typename T, access_context Access = default_access>
+consteval A                get_inherited_annotation_or(A fallback);
+```
+
+The search starts at `T` and continues with its base classes, depth first
+and in the order they are declared. It stops at the first class that has an
+annotation of type `A`. That class answers, so a derived class can replace
+what a base class says.
+
+| Function | No class has `A` | The nearest class with `A` has one | ... has several |
+| --- | --- | --- | --- |
+| `has_inherited_annotation` | `false` | `true` | `true` |
+| `get_inherited_annotation` | compile error | the value | compile error |
+| `find_inherited_annotation` | `std::nullopt` | the value | compile error |
+| `get_inherited_annotation_or` | `fallback` | the value | compile error |
+
+- `Access` decides which base classes are searched. With `public_access`,
+  private and protected bases are left out.
+- For a `T` that is not a class, only `T` itself is looked at.
+- There is no form for proxies: fields and functions have no base classes.
+
 ## Whole objects
 
 ```cpp
@@ -1048,6 +1085,8 @@ The library reports misuse while compiling. The message appears after
 | `reflect::walk: the callback does not accept the type of this field, and the field is not a class that could be walked into; add an overload for the type` | `walk` reached a field the callback cannot be called with, and that is not a class. |
 | `reflect::get_annotation: expected exactly one annotation of this type` | `get_annotation` with no annotation of that type, or several. |
 | `reflect::find_annotation: more than one annotation of this type` | `find_annotation` or `get_annotation_or` with several. |
+| `reflect::get_inherited_annotation: neither the class nor a base class has an annotation of this type` | `get_inherited_annotation` found the annotation nowhere. |
+| `reflect::get_inherited_annotation: more than one annotation of this type on the nearest class that has one` | The class that answers has the annotation several times. `find_inherited_annotation` reports the same under its own name. |
 | `reflect::invoke: no member function with that name` | `invoke<"name">` on a class without such a function. |
 
 [Troubleshooting](troubleshooting.md) lists these and the errors that come

@@ -85,6 +85,25 @@ consteval std::array<A, sizeof...(I)> annotation_values(
     return {std::meta::extract<A>(found[I])...};
 }
 
+// The annotations of type `annotation` on the nearest class that has any:
+// `type` itself first, then its base classes, depth first and in the order
+// they are declared. Empty if neither the type nor a base class has one.
+consteval std::vector<std::meta::info> nearest_annotations(
+    std::meta::info type, std::meta::info annotation,
+    std::meta::access_context access) {
+    std::vector<std::meta::info> found = annotations(type, annotation);
+    if (!found.empty())
+        return found;
+    if (!std::meta::is_class_type(type) || !std::meta::is_complete_type(type))
+        return found;
+    for (std::meta::info base : std::meta::bases_of(type, access)) {
+        found = nearest_annotations(std::meta::type_of(base), annotation, access);
+        if (!found.empty())
+            return found;
+    }
+    return found;
+}
+
 template <typename A>
 consteval std::vector<std::meta::info> filter_by_annotation(
     const std::vector<std::meta::info>& items, bool keep_annotated) {

@@ -80,6 +80,54 @@ static_assert(reflect::get_annotations_of<User>().get<1>().value().id == 1);
 static_assert(std::same_as<decltype(reflect::get_annotations_of<User>().get<3>())::type,
                            Table>);
 
+// Annotations of base classes.
+struct [[=Serializable{}, =Table{"entities"}, =Limit{1}]] Entity {};
+struct [[=Table{"customers"}]] Customer : Entity {};
+struct Vip : Customer {};
+
+// A class does not have the annotations of its bases...
+static_assert(!reflect::has_annotation<Serializable, Vip>());
+static_assert(!reflect::annotated_with<Vip, Serializable>);
+// ...unless asked for.
+static_assert(reflect::has_inherited_annotation<Serializable, Vip>());
+static_assert(reflect::has_inherited_annotation<Serializable, Entity>());
+static_assert(!reflect::has_inherited_annotation<Skip, Vip>());
+static_assert(!reflect::has_inherited_annotation<Serializable, Plain>());
+static_assert(!reflect::has_inherited_annotation<Serializable, int>());
+
+// The nearest class answers.
+static_assert(reflect::get_inherited_annotation<Table, Vip>().name == "customers");
+static_assert(reflect::get_inherited_annotation<Table, Customer>().name == "customers");
+static_assert(reflect::get_inherited_annotation<Table, Entity>().name == "entities");
+static_assert(reflect::get_inherited_annotation<Limit, Vip>().value == 1);
+
+static_assert(reflect::find_inherited_annotation<Table, Vip>()->name == "customers");
+static_assert(!reflect::find_inherited_annotation<Skip, Vip>().has_value());
+static_assert(!reflect::find_inherited_annotation<Table, int>().has_value());
+static_assert(reflect::get_inherited_annotation_or<Limit, Vip>(Limit{9}).value == 1);
+static_assert(reflect::get_inherited_annotation_or<Limit, Plain>(Limit{9}).value == 9);
+
+// Several bases: depth first, in declaration order.
+struct [[=Tag{10}]] Root {};
+struct Left : Root {};
+struct [[=Tag{20}]] Right {};
+struct Both : Left, Right {};
+struct Swapped : Right, Left {};
+static_assert(reflect::get_inherited_annotation<Tag, Both>().id == 10);
+static_assert(reflect::get_inherited_annotation<Tag, Swapped>().id == 20);
+
+// More than one on a base is fine as long as a nearer class decides.
+struct [[=Tag{3}]] Narrowed : User {};
+static_assert(reflect::get_inherited_annotation<Tag, Narrowed>().id == 3);
+
+// The access policy decides which bases count.
+struct [[=Tag{30}]] Hidden {};
+struct Wrapper : private Hidden {};
+static_assert(reflect::has_inherited_annotation<Tag, Wrapper>());
+static_assert(!reflect::has_inherited_annotation<Tag, Wrapper, reflect::public_access>());
+static_assert(reflect::get_inherited_annotation_or<Tag, Wrapper, reflect::public_access>(Tag{0})
+                  .id == 0);
+
 // static_string.
 static_assert(reflect::static_string("abc").view() == "abc");
 static_assert(reflect::static_string("abc").size == 3);
