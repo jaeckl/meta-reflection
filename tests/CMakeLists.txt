@@ -21,6 +21,7 @@ reflect_add_test(overloads)
 reflect_add_test(parameters)
 reflect_add_test(constructors)
 reflect_add_test(tables)
+reflect_add_test(walk)
 
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)

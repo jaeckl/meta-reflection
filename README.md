@@ -54,7 +54,9 @@ ordinary struct.
 | Walk base classes and inherited fields | `reflect::for_each_base`, `reflect::get_all_fields_of` |
 | Compare or diff two objects | `reflect::tie`, `reflect::for_each_field(a, b, fn)` |
 | Find a field by a name known only at run time | `reflect::visit_field` |
+| Visit nested structs with their path (`home.city`) | `reflect::walk` |
 | Build an object from parsed input | `reflect::make` |
+| Call a constructor with arguments chosen by parameter name | `reflect::construct` |
 | Get field names, offsets and sizes as plain data | `reflect::field_table` |
 
 The reflection itself happens at compile time. There is no run-time

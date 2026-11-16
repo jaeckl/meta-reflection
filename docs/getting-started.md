@@ -49,6 +49,7 @@ output.
   - [Compare two objects](#compare-two-objects)
   - [Walk two objects side by side](#walk-two-objects-side-by-side)
   - [Find a field by a run-time name](#find-a-field-by-a-run-time-name)
+  - [Walk nested objects](#walk-nested-objects)
   - [Build an object from input](#build-an-object-from-input)
   - [Build an object through its constructor](#build-an-object-through-its-constructor)
   - [Stop a loop early](#stop-a-loop-early)
@@ -988,6 +989,61 @@ true
 The callback has to compile for every field of the type, because any of
 them could be the one that matches. Use `if constexpr` on the field type if
 the fields need different handling.
+
+### Walk nested objects
+
+`for_each_field` looks at one object. `walk` also goes into the objects
+stored inside it, and tells you where it is:
+
+```cpp
+struct Address {
+    std::string city;
+    int zip = 0;
+};
+struct Employee {
+    std::string name;
+    Address home;
+    Address office;
+};
+```
+
+```cpp
+Employee employee{"Ada", {"London", 1000}, {"Paris", 7500}};
+
+reflect::walk(employee, reflect::overloaded{
+    [](reflect::field_path path, auto, const std::string& value) {
+        std::cout << path << " = \"" << value << "\"\n";
+    },
+    [](reflect::field_path path, auto, int value) {
+        std::cout << path << " = " << value << '\n';
+    },
+});
+```
+
+```text
+name = "Ada"
+home.city = "London"
+home.zip = 1000
+office.city = "Paris"
+office.zip = 7500
+```
+
+The callback receives the path, the field and the value. `reflect::overloaded`
+bundles several lambdas into one callback, one per type you want to handle.
+
+Your callback decides how deep the walk goes:
+
+- A field whose type one of the lambdas accepts is a **value**. It is passed
+  to that lambda. Here that is `std::string` and `int`.
+- Any other field is **opened**, and its fields are walked. Here that is
+  `Address`.
+
+That is why a `std::string` is not taken apart into its internals, although
+it is a class: there is a lambda for it. If you want `Address` handled as
+one value, add a lambda that takes `const Address&`.
+
+`path.to_string()` gives the path as a `std::string`, `path.back()` the name
+of the field itself, and `path.size()` the depth.
 
 ### Build an object from input
 

@@ -23,6 +23,7 @@ see the [Getting Started Guide](getting-started.md).
 - [list](#list)
 - [Annotation functions](#annotation-functions)
 - [Whole objects](#whole-objects)
+- [Walking nested objects](#walking-nested-objects)
 - [Constructing objects](#constructing-objects)
 - [Calling functions by name](#calling-functions-by-name)
 - [Enums](#enums)
@@ -85,6 +86,7 @@ can be included on their own.
 | `reflect/string.hpp` | `static_string`, `fixed_string` |
 | `reflect/table.hpp` | `field_info`, `field_table` |
 | `reflect/type.hpp` | `name_of` |
+| `reflect/walk.hpp` | `walk`, `field_path`, `overloaded` |
 | `reflect/config.hpp` | version macros, compiler check |
 
 ## Access policies
@@ -757,6 +759,72 @@ of `get_all_fields_of<T>()`.
 For `for_each_field(a, b, fn)` and `for_each_field_while` see
 [Iteration](#iteration).
 
+## Walking nested objects
+
+```cpp
+template <access_context Access = default_access, typename Object, typename Fn>
+constexpr void walk(Object&& object, Fn&& fn);                 // fn(path, field, value)
+
+class field_path {
+public:
+    constexpr std::size_t      size() const;
+    constexpr std::string_view operator[](std::size_t index) const;
+    constexpr std::string_view back() const;
+    constexpr auto             begin() const;
+    constexpr auto             end() const;
+    constexpr std::string      to_string(std::string_view separator = ".") const;
+
+    template <typename Traits>
+    friend std::basic_ostream<char, Traits>& operator<<(
+        std::basic_ostream<char, Traits>&, field_path);
+};
+
+template <typename... Fns>
+struct overloaded : Fns... {
+    using Fns::operator()...;
+};
+```
+
+**`walk(object, fn)`** visits the fields of `object`, and the fields of the
+objects nested inside it, depth first. For every field it does one of two
+things:
+
+1. If `fn(path, field, value)` is a valid call, it makes that call. The
+   field is a value as far as the walk is concerned.
+2. Otherwise the field has to be of class type, and the walk continues with
+   the fields of that object. It is a compile error if the field is not a
+   class.
+
+The callback therefore lists the types it treats as values, usually as
+`reflect::overloaded{...}` with one lambda per type, or with constrained
+parameters such as `const std::integral auto&`.
+
+- `value` is `field.get(parent)`: a reference into the object, const for a
+  const object, and a copy for a bit-field.
+- Inherited fields are included, base classes first.
+- The access policy applies at every level.
+- A callback that accepts every type, such as one taking `const auto&`,
+  never lets the walk descend.
+- The return value of `fn` is ignored.
+
+**`field_path`** is the chain of field names from the object `walk` was
+called with down to the current field.
+
+| Member | Result |
+| --- | --- |
+| `size()` | The depth: 1 for a field of the outermost object. |
+| `path[i]` | The i-th name, from the outside in. |
+| `back()` | The name of the current field. |
+| `begin()`, `end()` | Iterators over the names, as `std::string_view`. |
+| `to_string(separator)` | The names joined into a `std::string`: `"home.city"`. |
+| `out << path` | Writes the names joined with `.` to a stream. |
+
+A `field_path` refers to storage owned by the walk. It is valid during the
+call it was passed to; use `to_string()` to keep it.
+
+**`overloaded`** combines several function objects into one that has all
+their call operators.
+
 ## Constructing objects
 
 ```cpp
@@ -977,6 +1045,7 @@ The library reports misuse while compiling. The message appears after
 | `reflect::get_constructor_of: no constructor with these parameter types` | `get_constructor_of<T, Parameters...>()`, and `T` has no constructor with exactly these parameters. |
 | `reflect::construct: the class needs exactly one public constructor that takes arguments; ...` | `construct<T>(fn)` on a class with no such constructor, or with several. Pass a constructor from `get_constructor_of` as the first argument. |
 | `reflect::constructor::invoke: only a public constructor can be called` | `invoke` or `construct` with a private or protected constructor. |
+| `reflect::walk: the callback does not accept the type of this field, and the field is not a class that could be walked into; add an overload for the type` | `walk` reached a field the callback cannot be called with, and that is not a class. |
 | `reflect::get_annotation: expected exactly one annotation of this type` | `get_annotation` with no annotation of that type, or several. |
 | `reflect::find_annotation: more than one annotation of this type` | `find_annotation` or `get_annotation_or` with several. |
 | `reflect::invoke: no member function with that name` | `invoke<"name">` on a class without such a function. |

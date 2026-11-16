@@ -10,6 +10,7 @@ error texts are the ones GCC 16.2 prints.
 - [Errors with annotations](#errors-with-annotations)
 - [Errors with lists and loops](#errors-with-lists-and-loops)
 - [Errors when calling functions](#errors-when-calling-functions)
+- [Errors when walking nested objects](#errors-when-walking-nested-objects)
 - [Errors when building objects](#errors-when-building-objects)
 - [Known compiler problems](#known-compiler-problems)
 - [Questions](#questions)
@@ -308,6 +309,46 @@ reflect::get_function_of<User, "over", int(double)>().invoke(user, 5L);
 
 The class declares no function with that name. Check the spelling, and
 whether the function is inherited from a base class.
+
+## Errors when walking nested objects
+
+### `reflect::walk: the callback does not accept the type of this field`
+
+`reflect::walk` found a field your callback cannot be called with, and the
+field is not a class, so there is nothing to walk into. Add a lambda for the
+type. The line `required from here` in the compiler output points at your
+call, and the lines above it name the field.
+
+The same error appears, often several times, when the walk opens up a class
+you meant to treat as one value, a `std::vector` for example, and arrives at
+the pointers inside it. Add a lambda for the class:
+
+```cpp
+reflect::walk(person, reflect::overloaded{
+    [](reflect::field_path path, auto, const std::string& value) { /* ... */ },
+    [](reflect::field_path path, auto, const std::vector<int>& value) { /* ... */ },
+});
+```
+
+### An error inside the callback, for a type you did not expect
+
+```cpp
+reflect::walk(person, [](reflect::field_path path, auto, const auto& value) {
+    std::cout << path << " = " << value << '\n';   // error for nested structs
+});
+```
+
+A parameter declared `const auto&` accepts every type, nested structs
+included. The walk then hands the struct to the callback instead of opening
+it, and the body does not compile for it. Say which types the lambda is
+for:
+
+```cpp
+reflect::walk(person, reflect::overloaded{
+    [](reflect::field_path path, auto, const std::string& value) { /* ... */ },
+    [](reflect::field_path path, auto, const std::integral auto& value) { /* ... */ },
+});
+```
 
 ## Errors when building objects
 

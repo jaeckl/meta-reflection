@@ -92,6 +92,16 @@ struct Point {
     int y = 0;
 };
 
+struct Address {
+    std::string city;
+    int zip = 0;
+};
+struct Employee {
+    std::string name;
+    Address home;
+    Address office;
+};
+
 class Connection {
 public:
     Connection(std::string host, int port) : host_(std::move(host)), port_(port) {}
@@ -486,6 +496,19 @@ void field_by_run_time_name() {
     std::cout << found << '\n';
 }
 
+void walk_nested_objects() {
+    Employee employee{"Ada", {"London", 1000}, {"Paris", 7500}};
+
+    reflect::walk(employee, reflect::overloaded{
+        [](reflect::field_path path, auto, const std::string& value) {
+            std::cout << path << " = \"" << value << "\"\n";
+        },
+        [](reflect::field_path path, auto, int value) {
+            std::cout << path << " = " << value << '\n';
+        },
+    });
+}
+
 void build_an_object() {
     std::map<std::string, std::string> row{{"id", "7"}, {"name", "Ada"}, {"age", "36"}};
 
@@ -606,6 +629,7 @@ int main() {
     SECTION(compare_objects);
     SECTION(two_objects);
     SECTION(field_by_run_time_name);
+    SECTION(walk_nested_objects);
     SECTION(build_an_object);
     SECTION(construct_an_object);
     SECTION(pick_a_constructor);
