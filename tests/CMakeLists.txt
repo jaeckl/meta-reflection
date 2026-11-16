@@ -22,6 +22,7 @@ reflect_add_test(parameters)
 reflect_add_test(constructors)
 reflect_add_test(tables)
 reflect_add_test(walk)
+reflect_add_test(builder)
 
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)

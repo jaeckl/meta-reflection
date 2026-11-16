@@ -8,6 +8,7 @@
 #include "access.hpp"
 #include "annotation.hpp"
 #include "base.hpp"
+#include "builder.hpp"
 #include "constructor.hpp"
 #include "enumerator.hpp"
 #include "field.hpp"
