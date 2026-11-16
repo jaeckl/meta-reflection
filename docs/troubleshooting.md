@@ -428,6 +428,32 @@ The library avoids this internally, which is why the parameter proxy is
 If you do, pass the function and the position instead of the parameter
 itself.
 
+### `'... == 0' is not a constant expression` with `-fsanitize=undefined`
+
+Seen with GCC 16.2, with `-fsanitize=undefined` and with
+`-fno-delete-null-pointer-checks`, which the sanitizer turns on.
+
+With these options the compiler does not accept the comparison of some
+addresses with a null pointer in a constant expression. `std::string` makes
+that comparison when it is built from a `std::string_view`, and the address
+of a template argument is one of those the compiler rejects:
+
+```cpp
+template <reflect::fixed_string Name>
+constexpr std::size_t length_of = std::string(Name.view()).size();
+
+static_assert(length_of<"id"> == 2);   // an error with -fsanitize=undefined
+```
+
+The library is built and tested with the sanitizers, so its own code does
+not run into this. You can run into it in your own compile-time code.
+
+**Workaround:** build the string from two iterators:
+
+```cpp
+std::string(Name.view().begin(), Name.view().end())
+```
+
 ## Questions
 
 **Which compilers are supported?**
