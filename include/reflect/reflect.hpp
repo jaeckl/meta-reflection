@@ -17,4 +17,5 @@
 #include "parameter.hpp"
 #include "static_field.hpp"
 #include "string.hpp"
+#include "table.hpp"
 #include "type.hpp"
