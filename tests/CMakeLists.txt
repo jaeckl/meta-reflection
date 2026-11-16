@@ -23,3 +23,10 @@ reflect_add_test(tables)
 
 # The snippets of docs/getting-started.md.
 reflect_add_test(guide)
+
+# The generated single header has to behave like the split headers.
+add_executable(test_single_header guide.cpp)
+target_include_directories(test_single_header PRIVATE ${PROJECT_SOURCE_DIR}/single_include)
+target_compile_features(test_single_header PRIVATE cxx_std_26)
+target_compile_options(test_single_header PRIVATE -freflection -Wall -Wextra -Wpedantic)
+add_test(NAME single_header COMMAND test_single_header)
