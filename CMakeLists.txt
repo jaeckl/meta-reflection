@@ -1,13 +1,41 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.28)
 
-project(meta-reflection LANGUAGES CXX)
+project(reflect
+    VERSION 0.1.0
+    DESCRIPTION "A readable API on top of C++26 std::meta reflection"
+    LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 26)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
-add_executable(meta-reflection src/main.cpp)
+add_library(reflect INTERFACE)
+add_library(reflect::reflect ALIAS reflect)
 
-# MinGW libstdc++ leaves std::print terminal helpers unresolved unless
-# the experimental library is linked.
-target_link_libraries(meta-reflection PRIVATE stdc++exp)
+target_include_directories(reflect INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_compile_features(reflect INTERFACE cxx_std_26)
+
+# GCC keeps reflection behind a flag, so everything that uses the library needs it.
+target_compile_options(reflect INTERFACE
+    $<$<CXX_COMPILER_ID:GNU>:-freflection>)
+
+# Install: headers plus a package so that find_package(reflect) works.
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(TARGETS reflect EXPORT reflectTargets)
+install(EXPORT reflectTargets
+    NAMESPACE reflect::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reflect)
+
+configure_package_config_file(
+    cmake/reflectConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/reflectConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reflect)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/reflectConfigVersion.cmake
+    COMPATIBILITY SameMinorVersion
+    ARCH_INDEPENDENT)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/reflectConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/reflectConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/reflect)
