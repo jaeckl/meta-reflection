@@ -20,6 +20,8 @@ namespace {
 struct [[=reflect::generate_builder{}]] Unreachable {
     int value = 0;
 };
+
+struct [[=reflect::registered]] Hidden {};
 }  // namespace
 
 }  // namespace bad

@@ -18,6 +18,7 @@
 #include "namespace.hpp"
 #include "object.hpp"
 #include "parameter.hpp"
+#include "registry.hpp"
 #include "static_field.hpp"
 #include "string.hpp"
 #include "table.hpp"

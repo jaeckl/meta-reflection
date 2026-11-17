@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <initializer_list>
 #include <iosfwd>
+#include <memory>
 #include <meta>
 #include <optional>
 #include <span>
@@ -2002,6 +2003,149 @@ constexpr T make(Fn&& fn) {
 }
 
 }  // namespace reflect
+// ---- type.hpp --------------------------------------------------------------
+
+namespace reflect {
+
+namespace detail {
+
+// "outer::inner::Name", built from the enclosing namespaces and classes.
+consteval const char* qualified_name(std::meta::info type) {
+    if (!std::meta::has_identifier(type))
+        return std::define_static_string(std::meta::display_string_of(type));
+    std::string name(std::meta::identifier_of(type));
+    for (std::meta::info scope = std::meta::parent_of(type); scope != ^^::;
+         scope = std::meta::parent_of(scope)) {
+        // A function, for a local class, or an unnamed namespace: the type
+        // cannot be named from outside such a scope, so the scopes are
+        // left out.
+        bool nameable = std::meta::is_namespace(scope) || std::meta::is_type(scope);
+        if (!nameable || !std::meta::has_identifier(scope))
+            break;
+        name = std::string(std::meta::identifier_of(scope)) + "::" + name;
+    }
+    return std::define_static_string(name);
+}
+
+}  // namespace detail
+
+/// The name of a type: "User" for struct User.
+///
+/// A type without a plain identifier (int, Box<int>, a pointer) gets the
+/// compiler's display text instead, which differs between compilers.
+template <typename T>
+constexpr std::string_view name_of() {
+    return std::meta::has_identifier(^^T) ? std::meta::identifier_of(^^T)
+                                         : std::meta::display_string_of(^^T);
+}
+
+/// The name of a type with the namespaces and classes around it:
+/// "shop::User" for struct User in namespace shop. This is the name to
+/// write in generated code.
+///
+/// Like name_of, a type without a plain identifier gets the compiler's
+/// display text.
+template <typename T>
+constexpr std::string_view qualified_name_of() {
+    return detail::qualified_name(^^T);
+}
+
+}  // namespace reflect
+// ---- registry.hpp ----------------------------------------------------------
+
+// Experimental: the classes of a project that carry an annotation, found
+// by a code generator and used by ordinary code.
+
+namespace reflect {
+
+/// Marks a class for the registry:
+///
+///     struct [[=reflect::registered]] Circle : Shape { ... };
+///
+/// The annotation does nothing by itself. A build that runs
+/// reflect::codegen::registry_processor<> collects the marked classes in
+/// a generated header, and the functions below read them from there.
+struct registered_t {};
+inline constexpr registered_t registered{};
+
+/// The classes that carry the annotation `Annotation`. The library only
+/// declares this template. The definition is written by the registry
+/// processor into the generated header, so the functions below need that
+/// header to be included.
+template <typename Annotation>
+struct registry;
+
+namespace detail {
+
+template <typename Annotation>
+concept has_registry = requires { sizeof(registry<Annotation>); };
+
+template <typename... Types>
+struct registered_pack {
+    template <typename Fn>
+    static constexpr void for_each(Fn& fn) {
+        (static_cast<void>(fn(std::type_identity<Types>{})), ...);
+    }
+};
+
+}  // namespace detail
+
+/// A template filled with the registered classes, in the order the
+/// generator found them:
+///
+///     using AnyShape = reflect::registered_classes<std::variant>;
+///     // std::variant<shop::Circle, shop::Square>
+///
+/// The second argument is the annotation, for a registry of your own:
+/// reflect::registered_classes<std::variant, Component>.
+template <template <typename...> typename Template, typename Annotation = registered_t>
+using registered_classes = typename registry<Annotation>::template apply<Template>;
+
+/// Calls fn(std::type_identity<T>{}) for every registered class:
+///
+///     reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
+///         std::cout << reflect::qualified_name_of<T>() << '\n';
+///     });
+///
+/// For a registry of your own: reflect::for_each_registered<Component>(fn).
+template <typename Annotation = registered_t, typename Fn>
+constexpr void for_each_registered(Fn&& fn) {
+    static_assert(detail::has_registry<Annotation>,
+                  "reflect::for_each_registered: there is no registry for this "
+                  "annotation here; include the header that "
+                  "reflect::codegen::registry_processor generated for it");
+    if constexpr (detail::has_registry<Annotation>) {
+        using classes = registered_classes<detail::registered_pack, Annotation>;
+        classes::for_each(fn);
+    }
+}
+
+/// Creates an object of the registered class with this name, which is only
+/// known when the program runs:
+///
+///     std::unique_ptr<Shape> shape = reflect::create_registered<Shape>("shop::Circle");
+///
+/// The name is the one reflect::qualified_name_of gives. The result is
+/// empty if no registered class has that name, or if the class is not a
+/// `Base` or has no default constructor.
+///
+/// For a registry of your own: reflect::create_registered<Shape, Component>(name).
+template <typename Base, typename Annotation = registered_t>
+std::unique_ptr<Base> create_registered(std::string_view name) {
+    std::unique_ptr<Base> result;
+    for_each_registered<Annotation>([&]<typename T>(std::type_identity<T>) {
+        if constexpr (std::derived_from<T, Base> && std::default_initializable<T>) {
+            static_assert(std::same_as<T, Base> || std::has_virtual_destructor_v<Base>,
+                          "reflect::create_registered: the base class needs a "
+                          "virtual destructor");
+            if (!result && name == qualified_name_of<T>())
+                result = std::make_unique<T>();
+        }
+    });
+    return result;
+}
+
+}  // namespace reflect
 // ---- table.hpp -------------------------------------------------------------
 
 // Field metadata as plain data, for code that wants an ordinary array and an
@@ -2050,54 +2194,6 @@ constexpr std::array<field_info, sizeof...(Infos)> field_table(
 template <typename T, access_context Access = default_access>
 constexpr auto field_table() {
     return detail::field_table(fields_of_t<T, Access>{});
-}
-
-}  // namespace reflect
-// ---- type.hpp --------------------------------------------------------------
-
-namespace reflect {
-
-namespace detail {
-
-// "outer::inner::Name", built from the enclosing namespaces and classes.
-consteval const char* qualified_name(std::meta::info type) {
-    if (!std::meta::has_identifier(type))
-        return std::define_static_string(std::meta::display_string_of(type));
-    std::string name(std::meta::identifier_of(type));
-    for (std::meta::info scope = std::meta::parent_of(type); scope != ^^::;
-         scope = std::meta::parent_of(scope)) {
-        // A function, for a local class, or an unnamed namespace: the type
-        // cannot be named from outside such a scope, so the scopes are
-        // left out.
-        bool nameable = std::meta::is_namespace(scope) || std::meta::is_type(scope);
-        if (!nameable || !std::meta::has_identifier(scope))
-            break;
-        name = std::string(std::meta::identifier_of(scope)) + "::" + name;
-    }
-    return std::define_static_string(name);
-}
-
-}  // namespace detail
-
-/// The name of a type: "User" for struct User.
-///
-/// A type without a plain identifier (int, Box<int>, a pointer) gets the
-/// compiler's display text instead, which differs between compilers.
-template <typename T>
-constexpr std::string_view name_of() {
-    return std::meta::has_identifier(^^T) ? std::meta::identifier_of(^^T)
-                                         : std::meta::display_string_of(^^T);
-}
-
-/// The name of a type with the namespaces and classes around it:
-/// "shop::User" for struct User in namespace shop. This is the name to
-/// write in generated code.
-///
-/// Like name_of, a type without a plain identifier gets the compiler's
-/// display text.
-template <typename T>
-constexpr std::string_view qualified_name_of() {
-    return detail::qualified_name(^^T);
 }
 
 }  // namespace reflect

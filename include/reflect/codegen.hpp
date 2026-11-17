@@ -12,5 +12,6 @@
 #include "codegen/builder_processor.hpp"
 #include "codegen/context.hpp"
 #include "codegen/discover.hpp"
+#include "codegen/registry_processor.hpp"
 #include "codegen/run.hpp"
 #include "codegen/writer.hpp"

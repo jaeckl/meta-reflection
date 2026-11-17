@@ -47,6 +47,16 @@ reflect_process(test_codegen_use
     OUTPUT codegen_model_generated.hpp)
 add_test(NAME codegen_use COMMAND test_codegen_use)
 
+# The registry: its classes come from a generated header.
+reflect_add_test(registry)
+reflect_process(test_registry
+    HEADERS registry_model.hpp
+    PROCESSORS
+        reflect::codegen::registry_processor<>
+        reflect::codegen::registry_processor<Component>
+        reflect::codegen::registry_processor<Unused>
+    OUTPUT registry_model_generated.hpp)
+
 # The snippets of docs/getting-started.md and of the README.
 reflect_add_test(guide)
 reflect_add_test(readme)
