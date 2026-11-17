@@ -2,15 +2,18 @@
 
 // Experimental: running processors over the classes of the input headers.
 
+#include "../access.hpp"
 #include "../annotation.hpp"
 #include "../config.hpp"
 #include "../string.hpp"
 #include "context.hpp"
 #include "discover.hpp"
 
+#include <concepts>
 #include <fstream>
 #include <initializer_list>
 #include <iostream>
+#include <meta>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -31,17 +34,50 @@ consteval bool wants() {
         return true;
 }
 
+// True if the processor declares a member with this name, whatever it is.
+// A begin or end that cannot be called would otherwise be skipped without
+// a word.
+consteval bool declares(std::meta::info processor, std::string_view name) {
+    for (std::meta::info member : std::meta::members_of(processor, unchecked_access)) {
+        if (std::meta::has_identifier(member) && std::meta::identifier_of(member) == name)
+            return true;
+    }
+    return false;
+}
+
+template <typename Processor>
+concept has_begin = requires(Processor& processor, context& output) { processor.begin(output); };
+
+template <typename Processor>
+concept has_end = requires(Processor& processor, context& output) { processor.end(output); };
+
 template <typename Inputs, typename... Processors>
 struct generator;
 
 template <fixed_string... Files, typename... Processors>
 struct generator<inputs<Files...>, Processors...> {
+    // One object per processor, so a processor can keep what it learns
+    // about the classes in its members until end() is called.
     template <typename Processor>
     static void run(context& output) {
+        static_assert(std::default_initializable<Processor>,
+                      "reflect::codegen: a processor needs a default constructor");
+        static_assert(has_begin<Processor> || !declares(^^Processor, "begin"),
+                      "reflect::codegen: the begin function of a processor has to "
+                      "be callable as begin(reflect::codegen::context&)");
+        static_assert(has_end<Processor> || !declares(^^Processor, "end"),
+                      "reflect::codegen: the end function of a processor has to "
+                      "be callable as end(reflect::codegen::context&)");
+
+        Processor processor{};
+        if constexpr (has_begin<Processor>)
+            processor.begin(output);
         for_each_class_from<Files...>([&]<typename T>(std::type_identity<T>) {
             if constexpr (wants<Processor, T>())
-                Processor::template process<T>(output);
+                processor.template process<T>(output);
         });
+        if constexpr (has_end<Processor>)
+            processor.end(output);
     }
 
     static bool write(std::ostream& out, std::ostream& errors) {
@@ -81,6 +117,15 @@ struct generator<inputs<Files...>, Processors...> {
 /// and, to select the classes it is called for, a member type
 ///
 ///     using annotation = Printable;
+///
+/// For code that is about all classes together, a processor can also have
+///
+///     void begin(reflect::codegen::context&);   // before its first class
+///     void end(reflect::codegen::context&);     // after its last class
+///
+/// Both are called once, also when no class was selected. One object of
+/// each processor is created for a run, so process() can be a non-static
+/// function that stores what end() needs.
 ///
 /// Returns false, and writes nothing to `out`, if a processor reported an
 /// error. The messages go to `errors`.

@@ -68,6 +68,52 @@ struct failing_processor {
     }
 };
 
+// A processor is an object: it can count in process() and report in end().
+struct counting_processor {
+    using annotation = Printable;
+
+    void begin(codegen::context& context) { context.out().line("// begin"); }
+
+    template <typename T>
+    void process(codegen::context&) {
+        ++count_;
+    }
+
+    void end(codegen::context& context) {
+        context.out().line("// end: ", count_, " classes");
+    }
+
+private:
+    int count_ = 0;
+};
+
+// begin() and end() are called even if no class carries the annotation,
+// and they may be static.
+struct Unused {};
+
+struct idle_processor {
+    using annotation = Unused;
+
+    template <typename T>
+    static void process(codegen::context& context) {
+        context.out().line("// never");
+    }
+
+    static void end(codegen::context& context) { context.out().line("// idle"); }
+};
+
+// end() can refuse the input as well.
+struct refusing_processor {
+    using annotation = Printable;
+
+    template <typename T>
+    void process(codegen::context&) {}
+
+    void end(codegen::context& context) {
+        context.error<shop::Plain>("refused at the end");
+    }
+};
+
 bool contains(const std::string& text, std::string_view part) {
     return text.find(part) != std::string::npos;
 }
@@ -158,6 +204,27 @@ int main() {
                            "// shop::v2::Versioned\n"
                            "// shop::Outer\n"
                            "// shop::Outer::Nested\n");
+    }
+
+    // begin() and end(), and a fresh processor object for every run.
+    for (int run = 0; run < 2; ++run) {
+        std::ostringstream out, errors;
+        bool ok = codegen::generate<codegen::inputs<"codegen_model.hpp">, counting_processor,
+                                    idle_processor>(out, errors);
+        CHECK(ok);
+        CHECK(contains(out.str(), "#include \"codegen_model.hpp\"\n"
+                                  "\n"
+                                  "// begin\n"
+                                  "// end: 4 classes\n"
+                                  "// idle\n"));
+    }
+    {
+        std::ostringstream out, errors;
+        bool ok = codegen::generate<codegen::inputs<"codegen_model.hpp">,
+                                    refusing_processor>(out, errors);
+        CHECK(!ok);
+        CHECK(out.str().empty());
+        CHECK(contains(errors.str(), ": error: refused at the end\n"));
     }
 
     // The builder processor.
