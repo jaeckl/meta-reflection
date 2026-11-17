@@ -26,3 +26,4 @@ reflect_add_example(builder)
 # Several files and a generation step: it has its own directory.
 add_subdirectory(codegen)
 add_subdirectory(processors)
+add_subdirectory(registry)
