@@ -40,7 +40,7 @@ template <typename... Types>
 struct registered_pack {
     template <typename Fn>
     static constexpr void for_each(Fn& fn) {
-        (static_cast<void>(fn(std::type_identity<Types>{})), ...);
+        (static_cast<void>(fn(type_info<^^Types>{})), ...);
     }
 };
 
@@ -57,10 +57,10 @@ struct registered_pack {
 template <template <typename...> typename Template, typename Annotation = registered_t>
 using registered_classes = typename registry<Annotation>::template apply<Template>;
 
-/// Calls fn(std::type_identity<T>{}) for every registered class:
+/// Calls fn(type_info<...>{}) for every registered class:
 ///
-///     reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
-///         std::cout << reflect::qualified_name_of<T>() << '\n';
+///     reflect::for_each_registered([](auto cls) {
+///         std::cout << cls.qualified_name() << '\n';
 ///     });
 ///
 /// For a registry of your own: reflect::for_each_registered<Component>(fn).
@@ -89,12 +89,13 @@ constexpr void for_each_registered(Fn&& fn) {
 template <typename Base, typename Annotation = registered_t>
 std::unique_ptr<Base> create_registered(std::string_view name) {
     std::unique_ptr<Base> result;
-    for_each_registered<Annotation>([&]<typename T>(std::type_identity<T>) {
+    for_each_registered<Annotation>([&](auto cls) {
+        using T = typename decltype(cls)::type;
         if constexpr (std::derived_from<T, Base> && std::default_initializable<T>) {
             static_assert(std::same_as<T, Base> || std::has_virtual_destructor_v<Base>,
                           "reflect::create_registered: the base class needs a "
                           "virtual destructor");
-            if (!result && name == qualified_name_of<T>())
+            if (!result && name == cls.qualified_name())
                 result = std::make_unique<T>();
         }
     });

@@ -61,6 +61,17 @@ static_assert(reflect::qualified_name_of<shop::inner::Order::Line>() ==
 static_assert(reflect::qualified_name_of<shop::Alias>() == "shop::User");
 static_assert(reflect::qualified_name_of<shop::Color>() == "shop::Color");
 static_assert(reflect::name_of<shop::User>() == "User");
+
+// The proxy says the same, and it is not limited to classes.
+static_assert(std::is_same_v<reflect::type_info<^^shop::User>::type, shop::User>);
+static_assert(reflect::type_info<^^shop::User>::name() == "User");
+static_assert(reflect::type_info<^^shop::User>::qualified_name() == "shop::User");
+static_assert(reflect::type_info<^^shop::User>::template has_annotation<Entity>());
+static_assert(!reflect::type_info<^^shop::Plain>::template has_annotation<Entity>());
+static_assert(reflect::type_info<^^shop::Color>::name() == "Color");
+static_assert(reflect::type_info<^^shop::Color>::qualified_name() == "shop::Color");
+static_assert(reflect::type_info<^^shop::Either>::name() == "Either");
+static_assert(!reflect::type_info<^^int>::name().empty());
 // A scope that cannot be named from outside ends the name.
 static_assert(reflect::qualified_name_of<Hidden>() == "Hidden");
 static_assert(reflect::qualified_name_of<shop::Secret>() == "Secret");
@@ -80,18 +91,18 @@ static_assert(count_classes() == 2);
 int main() {
     std::vector<std::string_view> all;
     std::vector<std::string_view> entities;
-    reflect::for_each_class_in<^^shop>([&]<typename T>(std::type_identity<T>) {
-        all.push_back(reflect::name_of<T>());
-        if constexpr (reflect::has_annotation<Entity, T>())
-            entities.push_back(reflect::qualified_name_of<T>());
+    reflect::for_each_class_in<^^shop>([&](auto cls) {
+        all.push_back(cls.name());
+        if constexpr (cls.template has_annotation<Entity>())
+            entities.push_back(cls.qualified_name());
     });
     CHECK((all == std::vector<std::string_view>{"User", "Plain"}));
     CHECK((entities == std::vector<std::string_view>{"shop::User"}));
 
     // Nested namespaces are separate.
     std::vector<std::string_view> inner;
-    reflect::for_each_class_in<^^shop::inner>([&]<typename T>(std::type_identity<T>) {
-        inner.push_back(reflect::qualified_name_of<T>());
+    reflect::for_each_class_in<^^shop::inner>([&](auto cls) {
+        inner.push_back(cls.qualified_name());
     });
     CHECK((inner == std::vector<std::string_view>{"shop::inner::Order"}));
 
@@ -101,8 +112,8 @@ int main() {
 
     // The global namespace works too.
     bool found = false;
-    reflect::for_each_class_in<^^::>([&]<typename T>(std::type_identity<T>) {
-        found = found || std::is_same_v<T, Global>;
+    reflect::for_each_class_in<^^::>([&](auto cls) {
+        found = found || std::is_same_v<typename decltype(cls)::type, Global>;
     });
     CHECK(found);
 

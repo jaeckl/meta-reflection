@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation.hpp"
 #include "config.hpp"
 
 #include <meta>
@@ -30,14 +31,44 @@ consteval const char* qualified_name(std::meta::info type) {
 
 }  // namespace detail
 
+/// A type, the way a field proxy is a field.
+///
+/// The type is part of the proxy (type_info<^^User>), so every function is
+/// static and a type_info object is empty. Discovery hands one of these to
+/// its callback: [](auto cls) { cls.name(); }.
+///
+/// Any type is accepted: a class, an enum, a union, an alias, int. Finding
+/// those types is a separate question. The class walks still report classes
+/// only.
+template <std::meta::info Info>
+    requires(std::meta::is_type(Info) || std::meta::is_type_alias(Info))
+struct type_info : annotated<Info> {
+    /// The type itself. User for type_info<^^User>.
+    using type = [:Info:];
+
+    /// "User" for struct User. A type without a plain identifier (int,
+    /// Box<int>, a pointer) gets the compiler's display text instead, which
+    /// differs between compilers.
+    static constexpr std::string_view name() {
+        return std::meta::has_identifier(Info) ? std::meta::identifier_of(Info)
+                                               : std::meta::display_string_of(Info);
+    }
+
+    /// "shop::User". This is the name to write in generated code. An alias
+    /// gives the name of the type it stands for. Scopes that code outside
+    /// cannot name, a function or an unnamed namespace, are left out.
+    static constexpr std::string_view qualified_name() {
+        return detail::qualified_name(Info);
+    }
+};
+
 /// The name of a type: "User" for struct User.
 ///
 /// A type without a plain identifier (int, Box<int>, a pointer) gets the
 /// compiler's display text instead, which differs between compilers.
 template <typename T>
 constexpr std::string_view name_of() {
-    return std::meta::has_identifier(^^T) ? std::meta::identifier_of(^^T)
-                                         : std::meta::display_string_of(^^T);
+    return type_info<^^T>::name();
 }
 
 /// The name of a type with the namespaces and classes around it:
@@ -48,7 +79,7 @@ constexpr std::string_view name_of() {
 /// display text.
 template <typename T>
 constexpr std::string_view qualified_name_of() {
-    return detail::qualified_name(^^T);
+    return type_info<^^T>::qualified_name();
 }
 
 }  // namespace reflect

@@ -11,7 +11,6 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -19,8 +18,8 @@ int main(int argc, char** argv) {
     // Every registered class. A new shape in shapes.hpp appears here
     // without a change to this file.
     std::cout << "known shapes:";
-    reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
-        std::cout << ' ' << reflect::qualified_name_of<T>();
+    reflect::for_each_registered([](auto cls) {
+        std::cout << ' ' << cls.qualified_name();
     });
     std::cout << '\n';
 

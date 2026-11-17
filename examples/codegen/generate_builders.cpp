@@ -60,9 +60,9 @@ int main(int argc, char** argv) {
         << "#include <utility>\n\n"
         << "namespace shop {\n\n";
 
-    reflect::for_each_class_in<^^shop>([&]<typename T>(std::type_identity<T>) {
-        if constexpr (reflect::has_annotation<shop::Builder, T>())
-            write_builder<T>(out);
+    reflect::for_each_class_in<^^shop>([&](auto cls) {
+        if constexpr (cls.template has_annotation<shop::Builder>())
+            write_builder<typename decltype(cls)::type>(out);
     });
 
     out << "}  // namespace shop\n";

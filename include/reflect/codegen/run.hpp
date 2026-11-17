@@ -72,7 +72,8 @@ struct generator<inputs<Files...>, Processors...> {
         Processor processor{};
         if constexpr (has_begin<Processor>)
             processor.begin(output);
-        for_each_class_from<Files...>([&]<typename T>(std::type_identity<T>) {
+        for_each_class_from<Files...>([&](auto cls) {
+            using T = typename decltype(cls)::type;
             if constexpr (wants<Processor, T>())
                 processor.template process<T>(output);
         });

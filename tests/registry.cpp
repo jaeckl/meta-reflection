@@ -48,16 +48,16 @@ static_assert(count_unused() == 0);
 
 int main() {
     std::vector<std::string_view> names;
-    reflect::for_each_registered([&]<typename T>(std::type_identity<T>) {
-        names.push_back(reflect::qualified_name_of<T>());
+    reflect::for_each_registered([&](auto cls) {
+        names.push_back(cls.qualified_name());
     });
     CHECK((names == std::vector<std::string_view>{"shapes::Circle", "shapes::Square",
                                                   "shapes::Polygon", "shapes::Outline",
                                                   "shapes::Canvas"}));
 
     std::vector<std::string_view> components;
-    reflect::for_each_registered<Component>([&]<typename T>(std::type_identity<T>) {
-        components.push_back(reflect::name_of<T>());
+    reflect::for_each_registered<Component>([&](auto cls) {
+        components.push_back(cls.name());
     });
     CHECK((components == std::vector<std::string_view>{"Square", "Helper"}));
 

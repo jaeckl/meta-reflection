@@ -1830,6 +1830,84 @@ constexpr void for_each_member(Fn&& fn) {
 }
 
 }  // namespace reflect
+// ---- type.hpp --------------------------------------------------------------
+
+namespace reflect {
+
+namespace detail {
+
+// "outer::inner::Name", built from the enclosing namespaces and classes.
+consteval const char* qualified_name(std::meta::info type) {
+    if (!std::meta::has_identifier(type))
+        return std::define_static_string(std::meta::display_string_of(type));
+    std::string name(std::meta::identifier_of(type));
+    for (std::meta::info scope = std::meta::parent_of(type); scope != ^^::;
+         scope = std::meta::parent_of(scope)) {
+        // A function, for a local class, or an unnamed namespace: the type
+        // cannot be named from outside such a scope, so the scopes are
+        // left out.
+        bool nameable = std::meta::is_namespace(scope) || std::meta::is_type(scope);
+        if (!nameable || !std::meta::has_identifier(scope))
+            break;
+        name = std::string(std::meta::identifier_of(scope)) + "::" + name;
+    }
+    return std::define_static_string(name);
+}
+
+}  // namespace detail
+
+/// A type, the way a field proxy is a field.
+///
+/// The type is part of the proxy (type_info<^^User>), so every function is
+/// static and a type_info object is empty. Discovery hands one of these to
+/// its callback: [](auto cls) { cls.name(); }.
+///
+/// Any type is accepted: a class, an enum, a union, an alias, int. Finding
+/// those types is a separate question. The class walks still report classes
+/// only.
+template <std::meta::info Info>
+    requires(std::meta::is_type(Info) || std::meta::is_type_alias(Info))
+struct type_info : annotated<Info> {
+    /// The type itself. User for type_info<^^User>.
+    using type = [:Info:];
+
+    /// "User" for struct User. A type without a plain identifier (int,
+    /// Box<int>, a pointer) gets the compiler's display text instead, which
+    /// differs between compilers.
+    static constexpr std::string_view name() {
+        return std::meta::has_identifier(Info) ? std::meta::identifier_of(Info)
+                                               : std::meta::display_string_of(Info);
+    }
+
+    /// "shop::User". This is the name to write in generated code. An alias
+    /// gives the name of the type it stands for. Scopes that code outside
+    /// cannot name, a function or an unnamed namespace, are left out.
+    static constexpr std::string_view qualified_name() {
+        return detail::qualified_name(Info);
+    }
+};
+
+/// The name of a type: "User" for struct User.
+///
+/// A type without a plain identifier (int, Box<int>, a pointer) gets the
+/// compiler's display text instead, which differs between compilers.
+template <typename T>
+constexpr std::string_view name_of() {
+    return type_info<^^T>::name();
+}
+
+/// The name of a type with the namespaces and classes around it:
+/// "shop::User" for struct User in namespace shop. This is the name to
+/// write in generated code.
+///
+/// Like name_of, a type without a plain identifier gets the compiler's
+/// display text.
+template <typename T>
+constexpr std::string_view qualified_name_of() {
+    return type_info<^^T>::qualified_name();
+}
+
+}  // namespace reflect
 // ---- namespace.hpp ---------------------------------------------------------
 
 // Experimental: the classes of a namespace.
@@ -1838,35 +1916,27 @@ namespace reflect {
 
 namespace detail {
 
-template <std::meta::info... Types>
-struct class_list {
-    template <typename Fn>
-    static constexpr void for_each(Fn& fn) {
-        (static_cast<void>(fn(std::type_identity<typename [:Types:]>{})), ...);
-    }
-};
-
 consteval std::meta::info classes_in(std::meta::info scope) {
-    std::vector<std::meta::info> arguments;
+    std::vector<std::meta::info> found;
     for (std::meta::info member : std::meta::members_of(scope, unchecked_access)) {
         // An alias would report its class a second time.
         if (!std::meta::is_type(member) || std::meta::is_type_alias(member))
             continue;
         if (!std::meta::is_class_type(member) || !std::meta::is_complete_type(member))
             continue;
-        arguments.push_back(std::meta::reflect_constant(member));
+        found.push_back(member);
     }
-    return std::meta::substitute(^^class_list, arguments);
+    return make_list(^^type_info, found);
 }
 
 }  // namespace detail
 
-/// Calls fn(std::type_identity<T>{}) for every class T declared directly in
-/// a namespace:
+/// Calls fn(type_info<...>{}) for every class declared directly in a
+/// namespace:
 ///
-///     reflect::for_each_class_in<^^model>([]<typename T>(std::type_identity<T>) {
-///         if constexpr (reflect::has_annotation<Entity, T>())
-///             std::cout << reflect::name_of<T>() << '\n';
+///     reflect::for_each_class_in<^^model>([](auto cls) {
+///         if constexpr (cls.template has_annotation<Entity>())
+///             std::cout << cls.qualified_name() << '\n';
 ///     });
 ///
 /// Only complete, non-template classes are reported, and nested namespaces
@@ -2003,54 +2073,6 @@ constexpr T make(Fn&& fn) {
 }
 
 }  // namespace reflect
-// ---- type.hpp --------------------------------------------------------------
-
-namespace reflect {
-
-namespace detail {
-
-// "outer::inner::Name", built from the enclosing namespaces and classes.
-consteval const char* qualified_name(std::meta::info type) {
-    if (!std::meta::has_identifier(type))
-        return std::define_static_string(std::meta::display_string_of(type));
-    std::string name(std::meta::identifier_of(type));
-    for (std::meta::info scope = std::meta::parent_of(type); scope != ^^::;
-         scope = std::meta::parent_of(scope)) {
-        // A function, for a local class, or an unnamed namespace: the type
-        // cannot be named from outside such a scope, so the scopes are
-        // left out.
-        bool nameable = std::meta::is_namespace(scope) || std::meta::is_type(scope);
-        if (!nameable || !std::meta::has_identifier(scope))
-            break;
-        name = std::string(std::meta::identifier_of(scope)) + "::" + name;
-    }
-    return std::define_static_string(name);
-}
-
-}  // namespace detail
-
-/// The name of a type: "User" for struct User.
-///
-/// A type without a plain identifier (int, Box<int>, a pointer) gets the
-/// compiler's display text instead, which differs between compilers.
-template <typename T>
-constexpr std::string_view name_of() {
-    return std::meta::has_identifier(^^T) ? std::meta::identifier_of(^^T)
-                                         : std::meta::display_string_of(^^T);
-}
-
-/// The name of a type with the namespaces and classes around it:
-/// "shop::User" for struct User in namespace shop. This is the name to
-/// write in generated code.
-///
-/// Like name_of, a type without a plain identifier gets the compiler's
-/// display text.
-template <typename T>
-constexpr std::string_view qualified_name_of() {
-    return detail::qualified_name(^^T);
-}
-
-}  // namespace reflect
 // ---- registry.hpp ----------------------------------------------------------
 
 // Experimental: the classes of a project that carry an annotation, found
@@ -2084,7 +2106,7 @@ template <typename... Types>
 struct registered_pack {
     template <typename Fn>
     static constexpr void for_each(Fn& fn) {
-        (static_cast<void>(fn(std::type_identity<Types>{})), ...);
+        (static_cast<void>(fn(type_info<^^Types>{})), ...);
     }
 };
 
@@ -2101,10 +2123,10 @@ struct registered_pack {
 template <template <typename...> typename Template, typename Annotation = registered_t>
 using registered_classes = typename registry<Annotation>::template apply<Template>;
 
-/// Calls fn(std::type_identity<T>{}) for every registered class:
+/// Calls fn(type_info<...>{}) for every registered class:
 ///
-///     reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
-///         std::cout << reflect::qualified_name_of<T>() << '\n';
+///     reflect::for_each_registered([](auto cls) {
+///         std::cout << cls.qualified_name() << '\n';
 ///     });
 ///
 /// For a registry of your own: reflect::for_each_registered<Component>(fn).
@@ -2133,12 +2155,13 @@ constexpr void for_each_registered(Fn&& fn) {
 template <typename Base, typename Annotation = registered_t>
 std::unique_ptr<Base> create_registered(std::string_view name) {
     std::unique_ptr<Base> result;
-    for_each_registered<Annotation>([&]<typename T>(std::type_identity<T>) {
+    for_each_registered<Annotation>([&](auto cls) {
+        using T = typename decltype(cls)::type;
         if constexpr (std::derived_from<T, Base> && std::default_initializable<T>) {
             static_assert(std::same_as<T, Base> || std::has_virtual_destructor_v<Base>,
                           "reflect::create_registered: the base class needs a "
                           "virtual destructor");
-            if (!result && name == qualified_name_of<T>())
+            if (!result && name == cls.qualified_name())
                 result = std::make_unique<T>();
         }
     });

@@ -118,10 +118,7 @@ consteval std::meta::info classes_declared_in(
     std::initializer_list<std::string_view> files) {
     std::vector<std::meta::info> found;
     collect_classes(^^::, files, found);
-    std::vector<std::meta::info> arguments;
-    for (std::meta::info type : found)
-        arguments.push_back(std::meta::reflect_constant(type));
-    return std::meta::substitute(^^::reflect::detail::class_list, arguments);
+    return ::reflect::detail::make_list(^^::reflect::type_info, found);
 }
 
 consteval const char* enclosing_namespace(std::meta::info type) {
@@ -150,11 +147,11 @@ consteval bool can_be_named(std::meta::info type) {
 
 }  // namespace detail
 
-/// Calls fn(std::type_identity<T>{}) for every class declared in one of the
-/// given header files, whatever namespace it is in:
+/// Calls fn(type_info<...>{}) for every class declared in one of the given
+/// header files, whatever namespace it is in:
 ///
 ///     reflect::codegen::for_each_class_from<"model.hpp">(
-///         []<typename T>(std::type_identity<T>) { ... });
+///         [](auto cls) { ... });
 ///
 /// Classes nested in other classes are included. Class templates, classes
 /// that are only declared, and everything in namespace std are not. A file

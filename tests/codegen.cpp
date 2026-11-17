@@ -121,8 +121,8 @@ bool contains(const std::string& text, std::string_view part) {
 int main() {
     // Discovery: the classes of the listed header, wherever they are.
     std::vector<std::string_view> found;
-    codegen::for_each_class_from<"codegen_model.hpp">([&]<typename T>(std::type_identity<T>) {
-        found.push_back(reflect::qualified_name_of<T>());
+    codegen::for_each_class_from<"codegen_model.hpp">([&](auto cls) {
+        found.push_back(cls.qualified_name());
     });
     CHECK((found == std::vector<std::string_view>{
                         "Printable", "TopLevel", "shop::Entity", "shop::User", "shop::Plain",
