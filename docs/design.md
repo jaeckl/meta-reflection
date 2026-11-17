@@ -141,6 +141,7 @@ Decided:
 | D5 | Content of `get_functions_of` | Functions with a name only | An operator has no name to print or to look up, and `invoke<"name">` cannot reach it. Operators and conversion functions stay available through `get_members_of` and `as_function()` |
 | D6 | Where a recursive walk stops | The callback decides: a field it can be called with is a value, any other field is opened | See implementation note 18 |
 | D7 | `make` on a class with base classes | The callback is asked for the inherited fields too | An object built from input should not have half of its fields left at their defaults |
+| D8 | Proxy for a discovered class | `type_info`, passed by `for_each_class_in`, `for_each_class_from` and `for_each_registered`. No `std::type_identity` form | The callback reads like a field callback. The C++ type stays available as `type_info::type`. Processors still take the type, because they need it for type traits |
 
 No decision is open at the moment.
 
@@ -360,9 +361,11 @@ Experimental, and not covered by the decisions above: `builder`,
   cannot be filled in a loop. `set` and `build` take the builder by value
   through an explicit object parameter, so one definition moves from a
   temporary and copies from a variable.
-- `for_each_class_in` hands each class to the callback as
-  `std::type_identity<T>`. The library has no proxy for a type; whether it
-  should get one is open.
+- `for_each_class_in`, `for_each_class_from` and `for_each_registered` hand
+  each class over as `type_info` (decision D8). `type_info` accepts any
+  type, including an enum or a union. Those walks still report classes
+  only: an enum in the class list would break the registry, which
+  default-constructs its entries and puts them in a `std::variant`.
 - The result of `std::meta::members_of` for a namespace depends on where it
   is evaluated. A call to `for_each_class_in` inside an inline function of a
   header can therefore see different classes in different source files,
@@ -405,9 +408,6 @@ Experimental, and not covered by the decisions above: `builder`,
   code. A default definition with no classes would let a source file that
   forgot the generated header compile with an empty list, and two source
   files would then disagree about the same function.
-- `for_each_registered` hands each class to the callback as
-  `std::type_identity<T>`, like `for_each_class_in`. The open question
-  about a proxy for a type applies to both.
 - Open: several output files (the build system has to know them before the
   generator runs), more than one round, writing the output only when it
   changed, processors shipped as packages, and build systems other than

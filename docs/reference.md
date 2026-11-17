@@ -93,7 +93,7 @@ can be included on their own.
 | `reflect/static_field.hpp` | `static_field`, `get_static_fields_of`, `for_each_static_field` |
 | `reflect/string.hpp` | `static_string`, `fixed_string` |
 | `reflect/table.hpp` | `field_info`, `field_table` |
-| `reflect/type.hpp` | `name_of`, `qualified_name_of` |
+| `reflect/type.hpp` | `type_info`, `name_of`, `qualified_name_of` |
 | `reflect/walk.hpp` | `walk`, `field_path`, `overloaded` |
 | `reflect/config.hpp` | version macros, compiler check |
 | `reflect/codegen.hpp` | `reflect::codegen`, for generator programs (experimental). Not included by `reflect/reflect.hpp`, and not in the single header. |
@@ -1000,6 +1000,13 @@ each enumerator in turn.
 ## Types
 
 ```cpp
+template <std::meta::info Info>
+struct type_info : annotated<Info> {
+    using type = /* the type Info reflects */;
+    static constexpr std::string_view name();
+    static constexpr std::string_view qualified_name();
+};
+
 template <typename T>
 constexpr std::string_view name_of();
 
@@ -1009,6 +1016,17 @@ constexpr std::string_view qualified_name_of();
 template <typename T, access_context Access = default_access>
 using field_types_t = /* std::tuple<field types...> */;
 ```
+
+`type_info<^^User>` is the proxy for a type. It is empty, and every function
+is `static`, like `field`. `type` is the C++ type itself, so
+`type_info<^^User>::type` is `User`. `name()` and `qualified_name()` answer
+what `name_of` and `qualified_name_of` answer. The annotation queries are
+the ones every proxy has: `cls.template has_annotation<Entity>()`.
+
+Any type is accepted: a class, an enum, a union, an alias, `int`. The
+walks that find classes still report classes only. An enum you already
+hold can be named with `type_info<^^Color>`; nothing in the library lists
+the enums of a namespace.
 
 `name_of<T>()` is the name of a type: `"User"` for `struct User`. A type
 that has no simple name, such as `int`, a pointer or `Box<int>`, gives the
@@ -1032,17 +1050,17 @@ Experimental.
 
 ```cpp
 template <std::meta::info Namespace, typename Fn>
-constexpr void for_each_class_in(Fn&& fn);          // fn(std::type_identity<T>{})
+constexpr void for_each_class_in(Fn&& fn);          // fn(type_info<...>{})
 ```
 
 Calls `fn` once for every class declared directly in a namespace, in
 declaration order. The namespace is passed as a reflection: `^^shop`, or
-`^^::` for the global namespace.
+`^^::` for the global namespace. The argument is a `type_info` proxy.
 
 ```cpp
-reflect::for_each_class_in<^^shop>([]<typename T>(std::type_identity<T>) {
-    if constexpr (reflect::has_annotation<Entity, T>())
-        std::cout << reflect::qualified_name_of<T>() << '\n';
+reflect::for_each_class_in<^^shop>([](auto cls) {
+    if constexpr (cls.template has_annotation<Entity>())
+        std::cout << cls.qualified_name() << '\n';
 });
 ```
 
@@ -1075,7 +1093,7 @@ template <template <typename...> typename Template, typename Annotation = regist
 using registered_classes = /* Template<the registered classes...> */;
 
 template <typename Annotation = registered_t, typename Fn>
-constexpr void for_each_registered(Fn&& fn);         // fn(std::type_identity<T>{})
+constexpr void for_each_registered(Fn&& fn);         // fn(type_info<...>{})
 
 template <typename Base, typename Annotation = registered_t>
 std::unique_ptr<Base> create_registered(std::string_view name);
@@ -1097,7 +1115,7 @@ as its arguments, in the order the generator found them:
 annotation that no class carries it is `Template<>`.
 
 **`for_each_registered(fn)`** calls `fn` once per registered class, in the
-same order. It can be used at compile time.
+same order, with a `type_info` proxy. It can be used at compile time.
 
 **`create_registered<Base>(name)`** creates an object of the registered
 class whose `qualified_name_of` equals `name`, and returns it as
@@ -1128,15 +1146,16 @@ template <fixed_string... Files>
 struct inputs {};
 
 template <fixed_string... Files, typename Fn>
-constexpr void for_each_class_from(Fn&& fn);        // fn(std::type_identity<T>{})
+constexpr void for_each_class_from(Fn&& fn);        // fn(type_info<...>{})
 
 template <typename T> constexpr std::string_view namespace_of();
 template <typename T> consteval bool             can_be_named();
 ```
 
 **`for_each_class_from<"model.hpp", ...>(fn)`** calls `fn` for every class
-declared in one of the given header files. The order is that of the
-declarations, with the classes of a namespace kept together.
+declared in one of the given header files, with a `type_info` proxy. The
+order is that of the declarations, with the classes of a namespace kept
+together.
 
 - Every namespace is searched, except `std` and namespaces whose name
   starts with two underscores. Classes nested in other classes are

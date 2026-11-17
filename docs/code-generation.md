@@ -350,8 +350,8 @@ Use the classes, here from names that arrive on the command line:
 // Every registered class. A new shape in shapes.hpp appears here
 // without a change to this file.
 std::cout << "known shapes:";
-reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
-    std::cout << ' ' << reflect::qualified_name_of<T>();
+reflect::for_each_registered([](auto cls) {
+    std::cout << ' ' << cls.qualified_name();
 });
 std::cout << '\n';
 
@@ -401,7 +401,7 @@ the program starts, and a program that never asks pays nothing.
 
 | | |
 | --- | --- |
-| `reflect::for_each_registered(fn)` | Calls `fn(std::type_identity<T>{})` for every registered class. |
+| `reflect::for_each_registered(fn)` | Calls `fn` with a `type_info` proxy for every registered class. |
 | `reflect::create_registered<Base>(name)` | A `std::unique_ptr<Base>` to a new object of the registered class with that name. |
 | `reflect::registered_classes<Template>` | The type `Template<Circle, Square, ...>`. |
 
@@ -437,8 +437,8 @@ PROCESSORS
 ```
 
 ```cpp
-reflect::for_each_registered<Component>([&]<typename T>(std::type_identity<T>) {
-    components.push_back(reflect::name_of<T>());
+reflect::for_each_registered<Component>([&](auto cls) {
+    components.push_back(cls.name());
 });
 
 reflect::create_registered<shapes::Shape, Component>("shapes::Square")
@@ -726,9 +726,9 @@ int main(int argc, char** argv) {
         << "#include <utility>\n\n"
         << "namespace shop {\n\n";
 
-    reflect::for_each_class_in<^^shop>([&]<typename T>(std::type_identity<T>) {
-        if constexpr (reflect::has_annotation<shop::Builder, T>())
-            write_builder<T>(out);
+    reflect::for_each_class_in<^^shop>([&](auto cls) {
+        if constexpr (cls.template has_annotation<shop::Builder>())
+            write_builder<typename decltype(cls)::type>(out);
     });
 
     out << "}  // namespace shop\n";
@@ -737,7 +737,8 @@ int main(int argc, char** argv) {
 ```
 
 `^^shop` is the C++26 way to name the namespace as a value.
-`for_each_class_in` calls the lambda once per class, with the class as `T`.
+`for_each_class_in` calls the lambda once per class, with a `type_info`
+proxy. `cls.type` is the class.
 
 ```cpp
 template <typename T>
