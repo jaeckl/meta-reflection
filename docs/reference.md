@@ -31,6 +31,7 @@ see the [Getting Started Guide](getting-started.md).
 - [Enums](#enums)
 - [Types](#types)
 - [Namespaces](#namespaces)
+- [Registry](#registry)
 - [Code generation](#code-generation)
 - [Field table](#field-table)
 - [Strings](#strings)
@@ -88,6 +89,7 @@ can be included on their own.
 | `reflect/namespace.hpp` | `for_each_class_in` (experimental) |
 | `reflect/object.hpp` | `tie`, `make`, `visit_field`, `for_each_field_while`, two-object `for_each_field` |
 | `reflect/parameter.hpp` | `parameter`, `has_parameters`, `get_parameter_of`, `get_parameter_names_of`, `for_each_parameter` |
+| `reflect/registry.hpp` | `registered`, `registry`, `registered_classes`, `for_each_registered`, `create_registered` (experimental) |
 | `reflect/static_field.hpp` | `static_field`, `get_static_fields_of`, `for_each_static_field` |
 | `reflect/string.hpp` | `static_string`, `fixed_string` |
 | `reflect/table.hpp` | `field_info`, `field_table` |
@@ -1056,6 +1058,63 @@ This is the one place where the library reflects on something other than a
 class or an enum. Free functions and variables of a namespace are not
 covered.
 
+## Registry
+
+Experimental. The classes of a project that carry an annotation. The list
+is written by a code generator during the build; see
+[The registry processor](code-generation.md#the-registry-processor).
+
+```cpp
+struct registered_t {};
+inline constexpr registered_t registered{};          // [[=reflect::registered]]
+
+template <typename Annotation>
+struct registry;                                     // defined by generated code
+
+template <template <typename...> typename Template, typename Annotation = registered_t>
+using registered_classes = /* Template<the registered classes...> */;
+
+template <typename Annotation = registered_t, typename Fn>
+constexpr void for_each_registered(Fn&& fn);         // fn(std::type_identity<T>{})
+
+template <typename Base, typename Annotation = registered_t>
+std::unique_ptr<Base> create_registered(std::string_view name);
+```
+
+`Annotation` says which registry is meant: the classes marked
+`[[=reflect::registered]]` by default, or the classes that carry an
+annotation of your own for which `reflect::codegen::registry_processor<Annotation>`
+was run.
+
+All three need the header that the processor generated. In a source file
+that does not include it, `for_each_registered` and `create_registered` are
+a compile error, and `registered_classes` names an incomplete type.
+
+**`registered_classes<Template>`** is `Template` with the registered classes
+as its arguments, in the order the generator found them:
+`registered_classes<std::variant>` is
+`std::variant<shapes::Circle, shapes::Square, shapes::Triangle>`. For an
+annotation that no class carries it is `Template<>`.
+
+**`for_each_registered(fn)`** calls `fn` once per registered class, in the
+same order. It can be used at compile time.
+
+**`create_registered<Base>(name)`** creates an object of the registered
+class whose `qualified_name_of` equals `name`, and returns it as
+`std::unique_ptr<Base>`. The name may be computed while the program runs.
+
+- The result is empty if no registered class has that name, if the class is
+  neither `Base` nor publicly derived from it, or if it has no default
+  constructor. An abstract class has none.
+- `Base` needs a virtual destructor, unless the only class that can be
+  created is `Base` itself. Otherwise: compile error.
+- The object is value-initialized.
+- The name is compared with one class after the other.
+
+**`registry<Annotation>`** is only declared by the library. The generated
+header defines it for one annotation, with a member template `apply` that
+the functions above use. There is nothing to call on it directly.
+
 ## Code generation
 
 Experimental. `#include <reflect/codegen.hpp>`, namespace
@@ -1166,24 +1225,46 @@ template <typename Inputs, typename... Processors>
 int run(int argc, char** argv);
 
 struct builder_processor;     // for [[=reflect::generate_builder{}]]
+
+template <typename Annotation = registered_t>
+class registry_processor;     // for [[=reflect::registered]], or for Annotation
 ```
 
 A **processor** is a class with
 
 ```cpp
 template <typename T>
-static void process(reflect::codegen::context& context);
+void process(reflect::codegen::context& context);     // may be static
 ```
 
 and optionally a member type `annotation`. With it, `process` is called for
 the classes of the input headers that carry an annotation of that type;
 without it, for every class.
 
+A processor may also have one or both of
+
+```cpp
+void begin(reflect::codegen::context& context);       // may be static
+void end(reflect::codegen::context& context);         // may be static
+```
+
+| | |
+| --- | --- |
+| `begin` | Called once, before `process` is called for the first class. |
+| `end` | Called once, after `process` was called for the last class. |
+
+- One object of every processor is created for a run, with its default
+  constructor, and all three functions are called on it. A processor can
+  keep data between the calls.
+- `begin` and `end` are called even if `process` is called for no class.
+- A member named `begin` or `end` that cannot be called with a `context&`
+  is a compile error, as is a processor without a default constructor.
+
 **`generate<inputs<...>, Processors...>(out, errors)`** runs the processors
-in the order given, each over all classes, and writes the generated file to
-`out`: a comment, `#pragma once`, an `#include` for every input file under
-the name given in `inputs`, the includes the processors asked for, and
-their code. If a processor reported an error, nothing is written to `out`
+in the order given, each with its `begin`, all classes and its `end`, and
+writes the generated file to `out`: a comment, `#pragma once`, an
+`#include` for every input file under the name given in `inputs`, the
+includes the processors asked for, and their code. If a processor reported an error, nothing is written to `out`
 and the result is `false`.
 
 **`run<inputs<...>, Processors...>(argc, argv)`** is the `main` function of
@@ -1198,6 +1279,14 @@ argument.
 
 **`builder_processor`** is described in
 [The builder processor](code-generation.md#the-builder-processor).
+
+**`registry_processor<Annotation>`** writes the definition of
+`reflect::registry<Annotation>` for the classes that carry the annotation,
+and asks for `#include <reflect/reflect.hpp>`. It reports an error for a
+class in an unnamed namespace or inside a function. The annotation itself
+has to be a class with a name that generated code can use; otherwise:
+compile error. See
+[The registry processor](code-generation.md#the-registry-processor).
 
 ### CMake functions
 
@@ -1355,6 +1444,8 @@ The library reports misuse while compiling. The message appears after
 | `reflect::builder::build: the required field '...' was not set` | `build()` before every `[[=reflect::required]]` field was set. The message names the field. |
 | `reflect::builder: the class needs a default constructor` | `builder<T>` for a `T` that cannot be default constructed. |
 | `reflect::invoke: no member function with that name` | `invoke<"name">` on a class without such a function. |
+| `reflect::for_each_registered: there is no registry for this annotation here; include the header that reflect::codegen::registry_processor generated for it` | `for_each_registered` or `create_registered` in a source file that does not include the generated header, or for an annotation without a registry. |
+| `reflect::create_registered: the base class needs a virtual destructor` | `create_registered<Base>` could create a class derived from `Base`, and `Base` has no virtual destructor. |
 
 [Troubleshooting](troubleshooting.md) lists these and the errors that come
 from the compiler itself, with examples and fixes.

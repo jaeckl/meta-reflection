@@ -9,7 +9,7 @@ knowledge of C++ reflection.
 | [Installation](installation.md) | You need a compiler that supports reflection, or want to add the library to a build. |
 | [How it works](concepts.md) | You want to know what happens at compile time, and why callbacks are generic lambdas. |
 | [Cookbook](cookbook.md) | You are writing a serializer, a command line parser, a validator or something similar. |
-| [Generating code](code-generation.md) | You want a builder for your classes, or generated source files as with a Java annotation processor. Experimental. |
+| [Generating code](code-generation.md) | You want a builder for your classes, objects created from a class name, or generated source files as with a Java annotation processor. Experimental. |
 | [Coming from another language](coming-from.md) | You know reflection from Java, C#, Python, Go or Rust, or used Boost.PFR or magic_enum. |
 | [API Reference](reference.md) | You need the exact signature or behaviour of a function. |
 | [Troubleshooting](troubleshooting.md) | The compiler printed something you do not understand. |

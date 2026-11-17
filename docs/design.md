@@ -49,7 +49,8 @@ Non-goals:
 
 - New language features. This is a C++26 library.
 - Run-time reflection, a type registry, or "find every type annotated with
-  X". C++26 cannot enumerate those.
+  X". C++26 cannot enumerate those. A list written by a code generator is
+  an experiment outside the core; see the notes at the end.
 - Generating members or functions from annotations.
 
 ## The five rules
@@ -349,9 +350,9 @@ left out to keep the first version small.
   `for_each_class_in`.
 
 Experimental, and not covered by the decisions above: `builder`,
-`for_each_class_in`, `qualified_name_of`, the namespace `reflect::codegen`
-and the CMake functions `reflect_process` and `reflect_generate`. See
-[Generating code](code-generation.md).
+`for_each_class_in`, `qualified_name_of`, the registry, the namespace
+`reflect::codegen` and the CMake functions `reflect_process` and
+`reflect_generate`. See [Generating code](code-generation.md).
 
 - `builder` records the fields that were set in its type,
   `builder<T, ^^T::a, ^^T::b>`. That is what makes "a required field is
@@ -385,6 +386,28 @@ and the CMake functions `reflect_process` and `reflect_generate`. See
 - The `reflect::codegen` headers are kept out of `reflect.hpp` and of the
   single header. They write files, and a program that only reads
   annotations should not pay for them.
+- A processor is an object that lives for one run, not a set of static
+  functions. Code about all classes, such as a list, needs to know which
+  class is the last one, and with an object the processor simply collects
+  in `process` and writes in `end`. A `begin` or `end` with the wrong
+  parameters is rejected, because a function that is silently never called
+  is hard to find.
+- The registry is generated as a list of types, `registry<A>::apply`, not
+  as a table of names and factory functions. A list of types has no
+  run-time data and no initialization order, it can be turned into a
+  `std::variant` or a tuple, and a table can still be built from it. The
+  price is that `create_registered` compares the name with one class after
+  the other.
+- A registry is identified by its annotation type. That allows several
+  registries in one program without inventing names for them, and the
+  generated code is one explicit specialization.
+- `registry<A>` is declared by the library and defined only by generated
+  code. A default definition with no classes would let a source file that
+  forgot the generated header compile with an empty list, and two source
+  files would then disagree about the same function.
+- `for_each_registered` hands each class to the callback as
+  `std::type_identity<T>`, like `for_each_class_in`. The open question
+  about a proxy for a type applies to both.
 - Open: several output files (the build system has to know them before the
   generator runs), more than one round, writing the output only when it
   changed, processors shipped as packages, and build systems other than

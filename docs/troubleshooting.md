@@ -12,6 +12,7 @@ error texts are the ones GCC 16.2 prints.
 - [Errors when calling functions](#errors-when-calling-functions)
 - [Errors when walking nested objects](#errors-when-walking-nested-objects)
 - [Errors when building objects](#errors-when-building-objects)
+- [Errors with a registry](#errors-with-a-registry)
 - [Known compiler problems](#known-compiler-problems)
 - [Questions](#questions)
 
@@ -385,6 +386,60 @@ private fields, but it cannot call a private constructor: the language
 offers no way around the access check there. Give the class a public
 constructor or a public factory function.
 
+## Errors with a registry
+
+The registry is experimental; see
+[The registry processor](code-generation.md#the-registry-processor).
+
+### `reflect::for_each_registered: there is no registry for this annotation here`
+
+`for_each_registered` or `create_registered` in a source file that has not
+seen the list of classes. The list is in the header that the build
+generates. Include it:
+
+```cpp
+#include "shapes_registry.hpp"   // the OUTPUT of reflect_process
+```
+
+If the header is included, the registry in it is for another annotation.
+`reflect::for_each_registered<Component>(fn)` needs
+`reflect::codegen::registry_processor<Component>` among the `PROCESSORS`.
+
+### `invalid use of incomplete type 'struct reflect::registry<...>'`
+
+The same mistake with `reflect::registered_classes<Template>`: the
+generated header is not included, or has no registry for that annotation.
+
+### `redefinition of 'struct reflect::registry<...>'`
+
+Two generated headers that both hold the registry for one annotation are
+included into the same source file. There is one registry per annotation.
+List all headers with the classes in one `reflect_process` call, or use a
+second annotation for the second group of classes.
+
+### `reflect::create_registered: the base class needs a virtual destructor`
+
+`create_registered<Base>(name)` returns a `std::unique_ptr<Base>`, which
+deletes the object through a pointer to `Base`. That is only correct if
+`Base` has a virtual destructor:
+
+```cpp
+struct Shape {
+    virtual ~Shape() = default;
+    virtual double area() const = 0;
+};
+```
+
+### `reflect::codegen: the end function of a processor has to be callable as end(reflect::codegen::context&)`
+
+A processor has a member named `end`, or `begin`, with other parameters.
+Such a function would never be called, so it is rejected. Both take the
+context by reference:
+
+```cpp
+void end(reflect::codegen::context& context);
+```
+
 ## Known compiler problems
 
 These are defects in the compiler, not in your code. They are listed here so
@@ -477,6 +532,13 @@ between library versions.
 
 The library keeps no tables and registers nothing at start-up. What ends up
 in the program is the code of your callbacks, once per member.
+
+**Can I create an object from a class name in a file?**
+
+Not with reflection alone, which is over when the program is compiled. With
+a generated list of the classes, yes: see
+[The registry processor](code-generation.md#the-registry-processor).
+Experimental.
 
 **Can I look up a field by a string from a file?**
 

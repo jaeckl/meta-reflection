@@ -1,9 +1,9 @@
 # Generating code
 
 > **Experimental.** Everything on this page is a prototype:
-> `reflect::builder`, the namespace `reflect::codegen`, and the CMake
-> functions `reflect_process` and `reflect_generate`. Names and behaviour
-> may change.
+> `reflect::builder`, the registry, the namespace `reflect::codegen`, and
+> the CMake functions `reflect_process` and `reflect_generate`. Names and
+> behaviour may change.
 
 In Java, an annotation processor or a tool such as Lombok reads annotations
 and writes new classes: `@Builder` on a class gives you a `UserBuilder`.
@@ -18,7 +18,9 @@ library.
   - [Use the generated code](#use-the-generated-code)
   - [What the build wrote](#what-the-build-wrote)
   - [The builder processor](#the-builder-processor)
+  - [The registry processor](#the-registry-processor)
   - [Write a processor](#write-a-processor)
+  - [A processor for all classes together](#a-processor-for-all-classes-together)
   - [Errors from a processor](#errors-from-a-processor)
   - [Without CMake](#without-cmake)
   - [How it works](#how-it-works)
@@ -44,10 +46,12 @@ Reading is complete in C++26. Writing is not:
 | Create a new struct with computed fields | Yes, with `std::meta::define_aggregate`. Fields only. The library does not wrap it. |
 | Create member functions with computed names, such as `with_name()` | No. |
 | Add members to an existing class | No. |
+| Find a class by a name that is only known when the program runs | No. Reflection is over when the program is compiled. |
 | Write a source file while compiling | No. Compile-time code cannot write files. |
 
 Functions with computed names and members added from outside are proposed
-for a later standard. Until then there are three ways around it.
+for a later standard. Until then there are three ways around it. The second
+one also answers the last row, with a [registry](#the-registry-processor).
 
 ## Way 1: a builder without generated code
 
@@ -288,6 +292,163 @@ The processor reports an error, and the build stops, for a class without a
 default constructor, for a required field that is not public or cannot be
 assigned, and for a class in an unnamed namespace.
 
+### The registry processor
+
+A running program cannot ask reflection for the class named
+`"shapes::Circle"`. Reflection is over when the program is compiled, and it
+has no list of all classes of a project either.
+`reflect::codegen::registry_processor<>` writes that list for the classes
+you mark, and three functions of the library read it.
+
+The complete example is in [examples/registry/](../examples/registry).
+
+Mark the classes:
+
+```cpp
+namespace shapes {
+
+struct Shape {
+    virtual ~Shape() = default;
+    virtual double area() const = 0;
+};
+
+struct [[=reflect::registered]] Circle : Shape {
+    double radius = 1;
+    double area() const override { return 3.14159 * radius * radius; }
+};
+
+struct [[=reflect::registered]] Square : Shape {
+    double side = 2;
+    double area() const override { return side * side; }
+};
+
+struct [[=reflect::registered]] Triangle : Shape {
+    double base = 3;
+    double height = 2;
+    double area() const override { return base * height / 2; }
+};
+
+}  // namespace shapes
+```
+
+Run the processor:
+
+```cmake
+reflect_process(app
+    HEADERS shapes.hpp
+    PROCESSORS reflect::codegen::registry_processor<>
+    OUTPUT shapes_registry.hpp)
+```
+
+Use the classes, here from names that arrive on the command line:
+
+```cpp
+#include "shapes_registry.hpp"
+```
+
+```cpp
+// Every registered class. A new shape in shapes.hpp appears here
+// without a change to this file.
+std::cout << "known shapes:";
+reflect::for_each_registered([]<typename T>(std::type_identity<T>) {
+    std::cout << ' ' << reflect::qualified_name_of<T>();
+});
+std::cout << '\n';
+
+// From a name to an object.
+std::vector<std::string> names(argv + 1, argv + argc);
+if (names.empty())
+    names = {"shapes::Square", "shapes::Circle", "shapes::Hexagon"};
+for (const std::string& name : names) {
+    std::unique_ptr<shapes::Shape> shape = reflect::create_registered<shapes::Shape>(name);
+    if (shape)
+        std::cout << name << ": area " << shape->area() << '\n';
+    else
+        std::cout << name << ": no such shape\n";
+}
+
+// The registered classes as the arguments of a template.
+using AnyShape = reflect::registered_classes<std::variant>;
+AnyShape any = shapes::Triangle{};
+double area = std::visit([](const auto& shape) { return shape.area(); }, any);
+std::cout << "a variant of " << std::variant_size_v<AnyShape>
+          << " shapes, holding one with area " << area << '\n';
+```
+
+```text
+known shapes: shapes::Circle shapes::Square shapes::Triangle
+shapes::Square: area 4
+shapes::Circle: area 3.14159
+shapes::Hexagon: no such shape
+a variant of 3 shapes, holding one with area 3
+```
+
+This is all the build wrote:
+
+```cpp
+template <>
+struct reflect::registry<reflect::registered_t> {
+    template <template <typename...> typename Template>
+    using apply = Template<
+        shapes::Circle,
+        shapes::Square,
+        shapes::Triangle>;
+};
+```
+
+The registry is a list of types, not a table. Nothing is registered when
+the program starts, and a program that never asks pays nothing.
+
+| | |
+| --- | --- |
+| `reflect::for_each_registered(fn)` | Calls `fn(std::type_identity<T>{})` for every registered class. |
+| `reflect::create_registered<Base>(name)` | A `std::unique_ptr<Base>` to a new object of the registered class with that name. |
+| `reflect::registered_classes<Template>` | The type `Template<Circle, Square, ...>`. |
+
+They belong to `<reflect/reflect.hpp>`, not to the generator, and they need
+the generated header: a source file that does not include it gets a
+compile error, not an empty list.
+
+- **Names.** The name of a class is what `reflect::qualified_name_of`
+  gives: `shapes::Circle`, with its namespaces.
+- **`create_registered` returns an empty pointer** if no registered class
+  has that name, if the class is not a `Base`, or if it has no default
+  constructor. That includes abstract classes.
+- **The base class needs a virtual destructor**, because the object is
+  deleted through a pointer to it. Without one the call does not compile.
+- **Order.** The classes are listed as the generator finds them: in the
+  order of their declarations, with the classes of a namespace kept
+  together.
+- **Lookup** compares the name with one class after the other.
+- **The same list everywhere.** Every source file that includes the
+  generated header sees the same classes. That is the difference to
+  [`reflect::for_each_class_in`](reference.md#namespaces), which reports
+  what one source file has seen so far.
+- **A class in an unnamed namespace** cannot be registered; the processor
+  reports an error.
+
+**A registry of your own.** Give the processor one of your annotations, and
+pass the same annotation as the last template argument of the functions:
+
+```cmake
+PROCESSORS
+    reflect::codegen::registry_processor<>
+    reflect::codegen::registry_processor<Component>
+```
+
+```cpp
+reflect::for_each_registered<Component>([&]<typename T>(std::type_identity<T>) {
+    components.push_back(reflect::name_of<T>());
+});
+
+reflect::create_registered<shapes::Shape, Component>("shapes::Square")
+
+using Part = reflect::registered_classes<std::variant, Component>;
+```
+
+There is one registry per annotation. Two generated headers with a registry
+for the same annotation cannot be included into one source file.
+
 ### Write a processor
 
 A processor is a class with a function template `process`. The build calls
@@ -357,6 +518,80 @@ The same advice as for any generated code applies: spell the type of a
 field as `decltype(shop::User::name)` instead of printing a type name, and
 remember that the generated code cannot reach private members.
 
+### A processor for all classes together
+
+`process` sees one class. For code that is about all of them, such as a
+list, a table or a `switch`, a processor can keep data and has two more
+functions:
+
+| | |
+| --- | --- |
+| `void begin(reflect::codegen::context&)` | Called once, before the first class. |
+| `void end(reflect::codegen::context&)` | Called once, after the last class. |
+
+- **A processor is an object.** One is created for every run. `process`
+  may be a non-static member function and store in the object what `end`
+  needs.
+- **Both functions are optional**, and both are also called when no class
+  carries the annotation. `end` can then write an empty list.
+- **Processors run one after the other**, in the order they are listed:
+  `begin`, the classes and `end` of the first, then those of the second.
+- **A `begin` or `end` that cannot be called with a `context&`** is a
+  compile error. It is not skipped.
+- `end` may report errors like `process`.
+
+The registry processor is written this way. It remembers the classes and
+writes them when it has seen all of them. This is the whole processor,
+without its check that the annotation can be named:
+
+```cpp
+template <typename Annotation = registered_t>
+class registry_processor {
+public:
+    using annotation = Annotation;
+
+    // Called for one class at a time: remember it.
+    template <typename T>
+    void process(context& context) {
+        if (!can_be_named<T>()) {
+            context.error<T>(
+                "reflect::registered: the class is in an unnamed namespace or in "
+                "a function, so generated code cannot refer to it");
+            return;
+        }
+        classes_.emplace_back(qualified_name_of<T>());
+    }
+
+    // Called after the last class: write the list.
+    void end(context& context) {
+        // For the template that is specialized below. The single header
+        // has the same name.
+        context.include("<reflect/reflect.hpp>");
+        source_writer& out = context.out();
+
+        out.line("template <>");
+        out.line("struct reflect::registry<", qualified_name_of<Annotation>(), "> {");
+        {
+            auto members = out.indented();
+            out.line("template <template <typename...> typename Template>");
+            if (classes_.empty()) {
+                out.line("using apply = Template<>;");
+            } else {
+                out.line("using apply = Template<");
+                auto arguments = out.indented();
+                for (std::size_t i = 0; i < classes_.size(); ++i)
+                    out.line(classes_[i], i + 1 < classes_.size() ? "," : ">;");
+            }
+        }
+        out.line("};");
+        out.blank();
+    }
+
+private:
+    std::vector<std::string> classes_;
+};
+```
+
 ### Errors from a processor
 
 `context.error` prints the message in the format of a compiler error, with
@@ -414,7 +649,8 @@ names.
 - All processors of one `reflect_process` call write into one header.
 - `<reflect/codegen.hpp>` is only for generator programs. It is not part of
   `<reflect/reflect.hpp>` or of the single header, and the annotations
-  (`reflect::generate_builder`, `reflect::required`) do not need it.
+  (`reflect::generate_builder`, `reflect::required`, `reflect::registered`)
+  do not need it.
 
 ## Way 3: a generator program of your own
 
@@ -711,7 +947,7 @@ executable('app', 'main.cpp', builders, dependencies: reflect)
 | Required fields | checked at compile time | checked at run time by the builder processor | whatever you generate |
 | Private fields | yes | no | no, or through `friend` |
 | Editor completion for setters | no | yes, after a build | yes, after a build |
-| Can produce | builders | C++ code per class, in one header | anything: several files, SQL, documentation |
+| Can produce | builders | C++ code per class or about all classes, in one header | anything: several files, SQL, documentation |
 
 Start with the first. Use processors when the generated names matter or
 when the same generated code is wanted for many classes. Write your own
@@ -722,6 +958,8 @@ generator for output that processors cannot produce.
 | Java | Here |
 | --- | --- |
 | A processor is a class that implements `Processor` | A processor is a class with `process<T>(context&)`. |
+| A processor object lives for the whole run and can collect what it sees | The same. |
+| `processingOver()`: the last call, for code about all classes | `end(context&)`. |
 | `RoundEnvironment.getElementsAnnotatedWith` | The classes of the input headers that carry `annotation`. Members are reached through their class. |
 | `Filer`, and libraries such as JavaPoet | `context`, `source_writer`. One output file. |
 | `Messager.printMessage` with an element | `context.error`, at the file and line of the declaration. |
@@ -731,6 +969,7 @@ generator for output that processors cannot produce.
 | An annotated class may use the code generated for it | No. The input headers have to compile before anything is generated. Code in other files uses the result. |
 | Maven, Gradle and others | A CMake function. Other build systems by the pattern shown above. |
 | Processors change nothing in existing classes (Lombok does, through compiler internals) | The same. C++26 cannot add members to a class either. |
+| `Class.forName(name)` finds any class while the program runs | Only for the classes a registry processor listed: `reflect::create_registered`. |
 
 Not done yet: processors shipped as packages, several output files, more
 than one round, writing the output only when it changed, and support for

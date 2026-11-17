@@ -149,7 +149,7 @@ More options, including `find_package` and `add_subdirectory`, are in
 | [Installation](docs/installation.md) | Compiler setup and build system integration. |
 | [How it works](docs/concepts.md) | The three ideas behind the API, and why `if constexpr` shows up so often. |
 | [Cookbook](docs/cookbook.md) | Larger worked examples: JSON, SQL, command line options, validation. |
-| [Generating code](docs/code-generation.md) | Builders, and code generated from annotations during the build, as with a Java annotation processor. Experimental. |
+| [Generating code](docs/code-generation.md) | Builders, a registry of classes, and code generated from annotations during the build, as with a Java annotation processor. Experimental. |
 | [Coming from another language](docs/coming-from.md) | For Java, C#, Python, Go and Rust developers, and for users of earlier C++ reflection libraries. |
 | [API Reference](docs/reference.md) | Every type and function. |
 | [Troubleshooting](docs/troubleshooting.md) | Compiler errors and what they mean. |
@@ -175,6 +175,7 @@ Each file in [examples/](examples) is a complete program.
 | [inheritance.cpp](examples/inheritance.cpp) | Base classes and inherited fields. |
 | [builder.cpp](examples/builder.cpp) | A builder for any struct, with required fields checked at compile time. |
 | [processors/](examples/processors) | Code generated from annotations during the build: builders and `operator<<`. |
+| [registry/](examples/registry) | Objects created from class names that arrive at run time, with a generated list of the classes. |
 | [codegen/](examples/codegen) | The same idea one level down: a generator program written by hand. |
 
 To build and run them:

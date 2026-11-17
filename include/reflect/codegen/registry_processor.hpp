@@ -22,9 +22,8 @@ namespace reflect::codegen {
 ///     reflect::codegen::registry_processor<>            [[=reflect::registered]]
 ///     reflect::codegen::registry_processor<Component>   [[=Component{}]]
 ///
-/// The classes are listed in the order the generator finds them: header by
-/// header, and in a header in the order of the declarations, with the
-/// classes of a namespace kept together.
+/// The classes are listed in the order the generator finds them: the order
+/// of their declarations, with the classes of a namespace kept together.
 template <typename Annotation = registered_t>
 class registry_processor {
     static_assert(can_be_named<Annotation>(),
